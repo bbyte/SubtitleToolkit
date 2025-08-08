@@ -1,0 +1,1 @@
+"""Error scenario tests for edge cases and failure conditions."""

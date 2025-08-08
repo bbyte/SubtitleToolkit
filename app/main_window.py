@@ -22,6 +22,7 @@ from widgets.action_buttons import ActionButtons
 
 from dialogs.settings_dialog import SettingsDialog
 from config import ConfigManager
+from runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
 
 
 class MainWindow(QMainWindow):
@@ -55,6 +56,9 @@ class MainWindow(QMainWindow):
         
         # Configuration manager
         self.config_manager = ConfigManager(self)
+        
+        # Script runner for subprocess management
+        self.script_runner = ScriptRunner(self)
         
         # Window properties
         self.setWindowTitle("SubtitleToolkit")
@@ -214,6 +218,9 @@ class MainWindow(QMainWindow):
         
         # Log panel signals
         self.log_panel.message_logged.connect(self._on_log_message)
+        
+        # Script runner signals
+        self._connect_runner_signals()
     
     def _on_project_changed(self, directory: str) -> None:
         """Handle project directory change."""
@@ -237,15 +244,22 @@ class MainWindow(QMainWindow):
         if not self._validate_configuration():
             return
         
-        self.run_requested.emit()
-        self.log_panel.add_message("info", "Starting processing pipeline...")
-        self._set_running_state(True)
+        try:
+            self._start_processing_pipeline()
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Pipeline Error",
+                f"Failed to start processing pipeline:\n\n{str(e)}"
+            )
+            self.log_panel.add_message("error", f"Pipeline start failed: {str(e)}")
     
     def _on_cancel_clicked(self) -> None:
         """Handle cancel button click."""
-        self.cancel_requested.emit()
-        self.log_panel.add_message("info", "Processing cancelled by user")
-        self._set_running_state(False)
+        if self.script_runner.is_running:
+            self.script_runner.cancel_current_process()
+            self.log_panel.add_message("info", "Processing cancelled by user")
+        else:
+            self._set_running_state(False)
     
     def _on_open_output_clicked(self) -> None:
         """Handle open output button click."""
@@ -338,29 +352,43 @@ class MainWindow(QMainWindow):
     
     def _show_settings(self) -> None:
         """Show application settings dialog."""
-        # Placeholder for settings dialog
-        QMessageBox.information(
-            self, "Settings",
-            "Settings dialog will be implemented in Phase 3.\n\n"
-            "This will include:\n"
-            "• Tool path detection (ffmpeg/mkvextract)\n"
-            "• API key management\n"
-            "• Language defaults\n"
-            "• Advanced options"
-        )
+        if self._settings_dialog is None:
+            self._settings_dialog = SettingsDialog(self.config_manager, self)
+            self._settings_dialog.settings_applied.connect(self._on_settings_applied)
+        
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
     
     def _check_dependencies(self) -> None:
         """Check for required dependencies."""
-        # Placeholder for dependency checking
-        QMessageBox.information(
-            self, "Dependencies",
-            "Dependency checking will be implemented in Phase 3.\n\n"
-            "This will check for:\n"
-            "• ffmpeg and ffprobe\n"
-            "• mkvextract (optional)\n"
-            "• Python packages\n"
-            "• API connectivity"
-        )
+        if self._settings_dialog is None:
+            self._settings_dialog = SettingsDialog(self.config_manager, self)
+            self._settings_dialog.settings_applied.connect(self._on_settings_applied)
+        
+        # Show settings dialog on Tools tab and refresh detection
+        self._settings_dialog.show_tab("tools")
+        self._settings_dialog.refresh_tool_detection()
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
+    
+    def _on_settings_applied(self) -> None:
+        """Handle when settings are applied."""
+        self.log_panel.add_message("info", "Settings updated successfully")
+        
+        # Refresh UI elements that depend on settings
+        self._update_ui_from_settings()
+    
+    def _update_ui_from_settings(self) -> None:
+        """Update UI elements based on current settings."""
+        # This method can be used to update UI elements when settings change
+        # For example, updating language defaults, UI behavior, etc.
+        settings = self.config_manager.get_settings()
+        
+        # Update stage configurators with new settings
+        if hasattr(self.stage_configurators, 'update_from_settings'):
+            self.stage_configurators.update_from_settings(settings)
     
     def _show_about(self) -> None:
         """Show about dialog."""
@@ -378,7 +406,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         """Handle application close event."""
         # Check if processing is running
-        if self.action_buttons.is_running:
+        if self.script_runner.is_running:
             reply = QMessageBox.question(
                 self, "Confirm Exit",
                 "Processing is currently running. Are you sure you want to exit?",
@@ -391,7 +419,236 @@ class MainWindow(QMainWindow):
                 return
             
             # Cancel running processes
-            self.cancel_requested.emit()
+            self.script_runner.cancel_current_process()
         
         # Save settings here if needed
         event.accept()
+    
+    def _connect_runner_signals(self) -> None:
+        """Connect ScriptRunner signals to UI handlers."""
+        signals = self.script_runner.signals
+        
+        # Process lifecycle signals
+        signals.process_started.connect(self._on_process_started)
+        signals.process_finished.connect(self._on_process_finished)
+        signals.process_failed.connect(self._on_process_failed)
+        signals.process_cancelled.connect(self._on_process_cancelled)
+        
+        # Event signals from JSONL stream
+        signals.info_received.connect(self._on_info_received)
+        signals.progress_updated.connect(self._on_progress_updated)
+        signals.warning_received.connect(self._on_warning_received)
+        signals.error_received.connect(self._on_error_received)
+        signals.result_received.connect(self._on_result_received)
+    
+    def _start_processing_pipeline(self) -> None:
+        """Start the processing pipeline based on enabled stages."""
+        stages = self.stage_toggles.get_enabled_stages()
+        project_dir = self.project_selector.selected_directory
+        
+        if not project_dir:
+            raise ValueError("No project directory selected")
+        
+        self.log_panel.add_message("info", "Starting processing pipeline...")
+        self._set_running_state(True)
+        
+        # Start with the first enabled stage
+        if stages.get('extract', False):
+            self._run_extract_stage()
+        elif stages.get('translate', False):
+            self._run_translate_stage() 
+        elif stages.get('sync', False):
+            self._run_sync_stage()
+    
+    def _run_extract_stage(self) -> None:
+        """Run the extraction stage."""
+        try:
+            config = self._build_extract_config()
+            self.script_runner.run_extract(config)
+        except Exception as e:
+            self.log_panel.add_message("error", f"Failed to start extraction: {str(e)}")
+            self._set_running_state(False)
+            raise
+    
+    def _run_translate_stage(self) -> None:
+        """Run the translation stage."""
+        try:
+            config = self._build_translate_config()
+            self.script_runner.run_translate(config)
+        except Exception as e:
+            self.log_panel.add_message("error", f"Failed to start translation: {str(e)}")
+            self._set_running_state(False)
+            raise
+    
+    def _run_sync_stage(self) -> None:
+        """Run the sync stage."""
+        try:
+            config = self._build_sync_config()
+            self.script_runner.run_sync(config)
+        except Exception as e:
+            self.log_panel.add_message("error", f"Failed to start sync: {str(e)}")
+            self._set_running_state(False)
+            raise
+    
+    def _build_extract_config(self) -> ExtractConfig:
+        """Build extraction configuration from UI settings."""
+        project_dir = self.project_selector.selected_directory
+        
+        # Get configuration from stage configurators
+        extract_settings = self.stage_configurators.get_extract_config()
+        
+        # Get tool paths from settings
+        settings = self.config_manager.get_settings()
+        tools_config = settings.get('tools', {})
+        
+        return ExtractConfig(
+            input_directory=project_dir,
+            language_code=extract_settings.get('language_code', 'eng'),
+            output_directory=extract_settings.get('output_directory'),
+            recursive=extract_settings.get('recursive', True),
+            overwrite_existing=extract_settings.get('overwrite_existing', False),
+            ffmpeg_path=tools_config.get('ffmpeg_path') or None,
+            ffprobe_path=tools_config.get('ffprobe_path') or None,
+        )
+    
+    def _build_translate_config(self) -> TranslateConfig:
+        """Build translation configuration from UI settings."""
+        project_dir = self.project_selector.selected_directory
+        
+        # Get configuration from stage configurators
+        translate_settings = self.stage_configurators.get_translate_config()
+        
+        # Get settings
+        settings = self.config_manager.get_settings()
+        translators_config = settings.get('translators', {})
+        advanced_config = settings.get('advanced', {})
+        
+        provider = translate_settings.get('provider', 'openai')
+        provider_config = translators_config.get(provider, {})
+        
+        return TranslateConfig(
+            input_directory=project_dir,
+            output_directory=translate_settings.get('output_directory'),
+            source_language=translate_settings.get('source_language', 'auto'),
+            target_language=translate_settings.get('target_language', 'en'),
+            provider=provider,
+            model=translate_settings.get('model') or provider_config.get('default_model', ''),
+            api_key=provider_config.get('api_key', ''),
+            base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
+            max_workers=advanced_config.get('max_concurrent_workers', 3),
+            temperature=provider_config.get('temperature', 0.3),
+            max_tokens=provider_config.get('max_tokens', 4096),
+            timeout=provider_config.get('timeout', 30),
+            overwrite_existing=translate_settings.get('overwrite_existing', False),
+        )
+    
+    def _build_sync_config(self) -> SyncConfig:
+        """Build sync configuration from UI settings."""
+        project_dir = self.project_selector.selected_directory
+        
+        # Get configuration from stage configurators
+        sync_settings = self.stage_configurators.get_sync_config()
+        
+        # Get settings
+        settings = self.config_manager.get_settings()
+        translators_config = settings.get('translators', {})
+        
+        provider = sync_settings.get('provider', 'openai')
+        provider_config = translators_config.get(provider, {})
+        
+        return SyncConfig(
+            input_directory=project_dir,
+            provider=provider,
+            model=sync_settings.get('model') or provider_config.get('default_model', ''),
+            confidence_threshold=sync_settings.get('confidence_threshold', 0.8),
+            api_key=provider_config.get('api_key', ''),
+            dry_run=sync_settings.get('dry_run', True),
+            recursive=sync_settings.get('recursive', True),
+            naming_template=sync_settings.get('naming_template', "{show_title} - S{season:02d}E{episode:02d} - {episode_title}"),
+        )
+    
+    # ScriptRunner signal handlers
+    def _on_process_started(self, stage: Stage) -> None:
+        """Handle process started signal."""
+        stage_name = stage.value.capitalize()
+        self.log_panel.add_message("info", f"{stage_name} stage started")
+        self.progress_section.set_stage_active(stage.value)
+        self.progress_section.set_progress(0, f"Starting {stage_name.lower()}...")
+    
+    def _on_process_finished(self, result) -> None:  # result is ProcessResult
+        """Handle process finished signal."""
+        stage_name = result.stage.value.capitalize()
+        
+        if result.success:
+            self.log_panel.add_message("info", 
+                f"{stage_name} stage completed successfully in {result.duration_seconds:.1f}s")
+            self.progress_section.set_progress(100, f"{stage_name} completed")
+            
+            # Update results panel
+            if result.output_files:
+                self.results_panel.add_results(result.stage.value, result.output_files)
+            
+            # Check if we need to run next stage
+            self._check_next_stage(result.stage)
+        else:
+            error_msg = result.error_message or f"Process failed with exit code {result.exit_code}"
+            self.log_panel.add_message("error", f"{stage_name} stage failed: {error_msg}")
+            self.progress_section.set_error(f"{stage_name} failed")
+            self._set_running_state(False)
+    
+    def _on_process_failed(self, stage: Stage, error_message: str) -> None:
+        """Handle process failed signal."""
+        stage_name = stage.value.capitalize()
+        self.log_panel.add_message("error", f"{stage_name} stage failed: {error_message}")
+        self.progress_section.set_error(f"{stage_name} failed")
+        self._set_running_state(False)
+    
+    def _on_process_cancelled(self, stage: Stage) -> None:
+        """Handle process cancelled signal."""
+        stage_name = stage.value.capitalize()
+        self.log_panel.add_message("info", f"{stage_name} stage cancelled")
+        self.progress_section.set_cancelled(f"{stage_name} cancelled")
+        self._set_running_state(False)
+    
+    def _on_info_received(self, stage: Stage, message: str) -> None:
+        """Handle info message from process."""
+        self.log_panel.add_message("info", message)
+    
+    def _on_progress_updated(self, stage: Stage, progress: int, message: str) -> None:
+        """Handle progress update from process."""
+        self.progress_section.set_progress(progress, message)
+    
+    def _on_warning_received(self, stage: Stage, message: str) -> None:
+        """Handle warning message from process."""
+        self.log_panel.add_message("warning", message)
+    
+    def _on_error_received(self, stage: Stage, message: str) -> None:
+        """Handle error message from process."""
+        self.log_panel.add_message("error", message)
+    
+    def _on_result_received(self, stage: Stage, data: dict) -> None:
+        """Handle result data from process."""
+        # Extract useful information from result data
+        if 'outputs' in data:
+            self.results_panel.add_results(stage.value, data['outputs'])
+        
+        # Log summary information
+        if 'files_processed' in data:
+            files_processed = data['files_processed']
+            files_successful = data.get('files_successful', 0)
+            self.log_panel.add_message("info", 
+                f"Processed {files_processed} files, {files_successful} successful")
+    
+    def _check_next_stage(self, completed_stage: Stage) -> None:
+        """Check if we need to run the next stage in the pipeline."""
+        stages = self.stage_toggles.get_enabled_stages()
+        
+        # Determine next stage to run
+        if completed_stage == Stage.EXTRACT and stages.get('translate', False):
+            self._run_translate_stage()
+        elif completed_stage == Stage.TRANSLATE and stages.get('sync', False):
+            self._run_sync_stage()
+        else:
+            # Pipeline complete
+            self.log_panel.add_message("info", "Processing pipeline completed")
+            self._set_running_state(False)

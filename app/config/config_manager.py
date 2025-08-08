@@ -7,225 +7,64 @@ platform-appropriate storage locations and secure credential handling.
 
 import json
 import os
-import shutil
-import subprocess
+import threading
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
-from enum import Enum
-from datetime import datetime
+from typing import Dict, Any, Optional, List, Callable
+from datetime import datetime, timedelta
 
-from PySide6.QtCore import QObject, Signal, QStandardPaths
+from PySide6.QtCore import QObject, Signal, QStandardPaths, QThread
 
 from .settings_schema import SettingsSchema, ValidationResult, TranslationProvider, LogLevel
+from ..utils import DependencyChecker, ToolStatus, ToolInfo
 
 
-class ToolStatus(Enum):
-    """Status of tool detection."""
-    NOT_FOUND = "not_found"
-    FOUND = "found"
-    INVALID = "invalid"
-    ERROR = "error"
-
-
-@dataclass
-class ToolInfo:
-    """Information about a detected tool."""
-    status: ToolStatus
-    path: str = ""
-    version: str = ""
-    error_message: str = ""
-
-
-class DependencyChecker:
-    """Utility class for checking system dependencies."""
+class BackgroundDetectionWorker(QObject):
+    """Worker for background tool detection."""
     
-    @staticmethod
-    def detect_ffmpeg() -> ToolInfo:
-        """Detect ffmpeg installation."""
-        return DependencyChecker._detect_tool("ffmpeg", ["-version"])
+    detection_progress = Signal(str, int)  # tool_name, percentage
+    tool_detected = Signal(str, ToolInfo)  # tool_name, tool_info
+    detection_complete = Signal(dict)  # results dictionary
     
-    @staticmethod
-    def detect_ffprobe() -> ToolInfo:
-        """Detect ffprobe installation."""
-        return DependencyChecker._detect_tool("ffprobe", ["-version"])
+    def __init__(self, dependency_checker: DependencyChecker, tools: List[str]):
+        super().__init__()
+        self.dependency_checker = dependency_checker
+        self.tools = tools
+        self.should_stop = False
     
-    @staticmethod
-    def detect_mkvextract() -> ToolInfo:
-        """Detect mkvextract installation."""
-        return DependencyChecker._detect_tool("mkvextract", ["--version"])
-    
-    @staticmethod
-    def validate_tool_path(path: str, tool_name: str) -> ToolInfo:
-        """Validate a specific tool path."""
-        if not path or not Path(path).exists():
-            return ToolInfo(
-                status=ToolStatus.NOT_FOUND,
-                error_message=f"Path does not exist: {path}"
-            )
+    def run(self):
+        """Run background detection for all tools."""
+        results = {}
+        total_tools = len(self.tools)
         
-        try:
-            # Try to run the tool to verify it works
-            if tool_name == "mkvextract":
-                args = ["--version"]
+        for i, tool in enumerate(self.tools):
+            if self.should_stop:
+                break
+            
+            # Emit progress
+            progress = int((i / total_tools) * 100)
+            self.detection_progress.emit(tool, progress)
+            
+            # Detect tool
+            if tool == "ffmpeg":
+                info = self.dependency_checker.detect_ffmpeg(use_cache=False)
+            elif tool == "ffprobe":
+                info = self.dependency_checker.detect_ffprobe(use_cache=False)
+            elif tool == "mkvextract":
+                info = self.dependency_checker.detect_mkvextract(use_cache=False)
             else:
-                args = ["-version"]
+                info = ToolInfo(status=ToolStatus.NOT_FOUND, error_message=f"Unknown tool: {tool}")
             
-            result = subprocess.run(
-                [path] + args,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            
-            if result.returncode == 0:
-                version = DependencyChecker._extract_version(result.stdout + result.stderr, tool_name)
-                return ToolInfo(
-                    status=ToolStatus.FOUND,
-                    path=path,
-                    version=version
-                )
-            else:
-                return ToolInfo(
-                    status=ToolStatus.INVALID,
-                    path=path,
-                    error_message=f"Tool returned error code {result.returncode}"
-                )
-                
-        except subprocess.TimeoutExpired:
-            return ToolInfo(
-                status=ToolStatus.ERROR,
-                path=path,
-                error_message="Tool validation timed out"
-            )
-        except Exception as e:
-            return ToolInfo(
-                status=ToolStatus.ERROR,
-                path=path,
-                error_message=str(e)
-            )
+            results[tool] = info
+            self.tool_detected.emit(tool, info)
+        
+        # Final progress update
+        if not self.should_stop:
+            self.detection_progress.emit("complete", 100)
+            self.detection_complete.emit(results)
     
-    @staticmethod
-    def _detect_tool(tool_name: str, args: List[str]) -> ToolInfo:
-        """Detect a tool using PATH lookup."""
-        # First try to find in PATH
-        tool_path = shutil.which(tool_name)
-        if tool_path:
-            return DependencyChecker.validate_tool_path(tool_path, tool_name)
-        
-        # Common installation locations by platform
-        common_paths = DependencyChecker._get_common_tool_paths(tool_name)
-        for path in common_paths:
-            if Path(path).exists():
-                result = DependencyChecker.validate_tool_path(path, tool_name)
-                if result.status == ToolStatus.FOUND:
-                    return result
-        
-        return ToolInfo(
-            status=ToolStatus.NOT_FOUND,
-            error_message=f"{tool_name} not found in PATH or common locations"
-        )
-    
-    @staticmethod
-    def _get_common_tool_paths(tool_name: str) -> List[str]:
-        """Get common installation paths for tools by platform."""
-        import platform
-        system = platform.system().lower()
-        
-        paths = []
-        
-        if system == "windows":
-            # Windows common paths
-            program_files = [
-                os.environ.get("ProgramFiles", r"C:\Program Files"),
-                os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-            ]
-            
-            for pf in program_files:
-                if tool_name in ["ffmpeg", "ffprobe"]:
-                    paths.extend([
-                        f"{pf}\\ffmpeg\\bin\\{tool_name}.exe",
-                        f"{pf}\\FFmpeg\\bin\\{tool_name}.exe",
-                    ])
-                elif tool_name == "mkvextract":
-                    paths.extend([
-                        f"{pf}\\MKVToolNix\\{tool_name}.exe",
-                        f"{pf}\\mkvtoolnix\\{tool_name}.exe",
-                    ])
-        
-        elif system == "darwin":
-            # macOS common paths
-            if tool_name in ["ffmpeg", "ffprobe"]:
-                paths.extend([
-                    f"/usr/local/bin/{tool_name}",
-                    f"/opt/homebrew/bin/{tool_name}",
-                    f"/opt/local/bin/{tool_name}",
-                ])
-            elif tool_name == "mkvextract":
-                paths.extend([
-                    f"/usr/local/bin/{tool_name}",
-                    f"/opt/homebrew/bin/{tool_name}",
-                    f"/Applications/MKVToolNix-*.app/Contents/MacOS/{tool_name}",
-                ])
-        
-        else:
-            # Linux common paths
-            paths.extend([
-                f"/usr/bin/{tool_name}",
-                f"/usr/local/bin/{tool_name}",
-                f"/opt/bin/{tool_name}",
-            ])
-        
-        return paths
-    
-    @staticmethod
-    def _extract_version(output: str, tool_name: str) -> str:
-        """Extract version information from tool output."""
-        lines = output.split('\n')
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('Copyright'):
-                # Try to find version pattern
-                if tool_name == "ffmpeg":
-                    if line.startswith("ffmpeg version"):
-                        return line.split()[2]
-                elif tool_name == "ffprobe":
-                    if line.startswith("ffprobe version"):
-                        return line.split()[2]
-                elif tool_name == "mkvextract":
-                    if "mkvextract" in line and "v" in line:
-                        parts = line.split()
-                        for part in parts:
-                            if part.startswith("v") and any(c.isdigit() for c in part):
-                                return part[1:]  # Remove 'v' prefix
-        
-        return "Unknown"
-    
-    @staticmethod
-    def get_installation_guide(tool_name: str) -> str:
-        """Get installation instructions for a tool."""
-        import platform
-        system = platform.system().lower()
-        
-        guides = {
-            "windows": {
-                "ffmpeg": "Download from https://ffmpeg.org/download.html and add to PATH",
-                "ffprobe": "Included with FFmpeg installation",
-                "mkvextract": "Download MKVToolNix from https://mkvtoolnix.download/",
-            },
-            "darwin": {
-                "ffmpeg": "Install with: brew install ffmpeg",
-                "ffprobe": "Included with FFmpeg installation", 
-                "mkvextract": "Install with: brew install mkvtoolnix",
-            },
-            "linux": {
-                "ffmpeg": "Install with package manager: sudo apt install ffmpeg (Ubuntu/Debian)",
-                "ffprobe": "Included with FFmpeg installation",
-                "mkvextract": "Install with: sudo apt install mkvtoolnix (Ubuntu/Debian)",
-            }
-        }
-        
-        return guides.get(system, {}).get(tool_name, f"Please install {tool_name}")
+    def stop(self):
+        """Stop the detection process."""
+        self.should_stop = True
 
 
 class ConfigManager(QObject):
@@ -234,6 +73,8 @@ class ConfigManager(QObject):
     # Signals for configuration changes
     settings_changed = Signal(str)  # section name
     tool_detected = Signal(str, ToolInfo)  # tool name, tool info
+    detection_progress = Signal(str, int)  # tool_name, percentage
+    detection_complete = Signal(dict)  # results dictionary
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -241,9 +82,15 @@ class ConfigManager(QObject):
         self._config_file = self._get_config_file_path()
         self._load_settings()
         
-        # Cache for tool detection
-        self._tool_cache = {}
-        self._last_detection_check = None
+        # Enhanced dependency checker with caching
+        self._dependency_checker = DependencyChecker(cache_ttl_minutes=10)
+        
+        # Background detection threading
+        self._detection_thread = None
+        self._detection_worker = None
+        
+        # Tool detection cache with persistence
+        self._tool_detection_cache_file = self._config_file.parent / "tool_cache.json"
     
     def _get_config_file_path(self) -> Path:
         """Get platform-appropriate configuration file path."""
@@ -324,31 +171,151 @@ class ConfigManager(QObject):
     
     def get_tool_info(self, tool_name: str, force_refresh: bool = False) -> ToolInfo:
         """Get cached or fresh tool detection information."""
-        if force_refresh or tool_name not in self._tool_cache:
-            self._tool_cache[tool_name] = self._detect_tool(tool_name)
-            self.tool_detected.emit(tool_name, self._tool_cache[tool_name])
-        
-        return self._tool_cache[tool_name]
-    
-    def _detect_tool(self, tool_name: str) -> ToolInfo:
-        """Detect a specific tool."""
-        # Check if manual path is configured
+        # Check if manual path is configured first
         tools_config = self.get_settings("tools")
         manual_path = tools_config.get(f"{tool_name}_path", "")
         
         if manual_path:
-            return DependencyChecker.validate_tool_path(manual_path, tool_name)
+            # Validate manual path
+            info = self._dependency_checker.validate_tool_path(manual_path, tool_name)
+            self.tool_detected.emit(tool_name, info)
+            return info
         
-        # Auto-detection
+        # Use enhanced dependency checker with caching
+        if force_refresh:
+            self._dependency_checker.clear_cache()
+        
+        # Auto-detection if enabled
         if tools_config.get("auto_detect_tools", True):
             if tool_name == "ffmpeg":
-                return DependencyChecker.detect_ffmpeg()
+                info = self._dependency_checker.detect_ffmpeg(use_cache=not force_refresh)
             elif tool_name == "ffprobe":
-                return DependencyChecker.detect_ffprobe()
+                info = self._dependency_checker.detect_ffprobe(use_cache=not force_refresh)
             elif tool_name == "mkvextract":
-                return DependencyChecker.detect_mkvextract()
+                info = self._dependency_checker.detect_mkvextract(use_cache=not force_refresh)
+            else:
+                info = ToolInfo(status=ToolStatus.NOT_FOUND, error_message=f"Unknown tool: {tool_name}")
+        else:
+            info = ToolInfo(status=ToolStatus.NOT_FOUND, error_message="Auto-detection disabled")
         
-        return ToolInfo(status=ToolStatus.NOT_FOUND)
+        self.tool_detected.emit(tool_name, info)
+        return info
+    
+    def detect_all_tools_background(
+        self, 
+        tools: Optional[List[str]] = None, 
+        force_refresh: bool = False
+    ) -> None:
+        """
+        Detect all tools in background thread with progress updates.
+        
+        Args:
+            tools: List of tool names to detect (default: all supported tools)
+            force_refresh: Force fresh detection ignoring cache
+        """
+        if tools is None:
+            tools = ["ffmpeg", "ffprobe", "mkvextract"]
+        
+        # Stop any existing detection
+        self.stop_background_detection()
+        
+        if force_refresh:
+            self._dependency_checker.clear_cache()
+        
+        # Create new worker and thread
+        self._detection_worker = BackgroundDetectionWorker(self._dependency_checker, tools)
+        self._detection_thread = QThread()
+        self._detection_worker.moveToThread(self._detection_thread)
+        
+        # Connect signals
+        self._detection_thread.started.connect(self._detection_worker.run)
+        self._detection_worker.detection_progress.connect(self.detection_progress.emit)
+        self._detection_worker.tool_detected.connect(self.tool_detected.emit)
+        self._detection_worker.detection_complete.connect(self._on_background_detection_complete)
+        
+        # Start detection
+        self._detection_thread.start()
+    
+    def stop_background_detection(self) -> None:
+        """Stop any ongoing background detection."""
+        if self._detection_worker:
+            self._detection_worker.stop()
+        
+        if self._detection_thread and self._detection_thread.isRunning():
+            self._detection_thread.quit()
+            self._detection_thread.wait(5000)  # Wait up to 5 seconds
+        
+        self._detection_worker = None
+        self._detection_thread = None
+    
+    def _on_background_detection_complete(self, results: Dict[str, ToolInfo]) -> None:
+        """Handle background detection completion."""
+        # Save detection results to cache file
+        self._save_tool_detection_cache(results)
+        
+        # Update last detection time in settings
+        tools_settings = self.get_settings("tools")
+        tools_settings["last_detection_time"] = datetime.now().isoformat()
+        self.update_settings("tools", tools_settings, save=True)
+        
+        # Clean up thread
+        if self._detection_thread:
+            self._detection_thread.quit()
+            self._detection_thread.wait()
+        
+        self._detection_worker = None
+        self._detection_thread = None
+        
+        # Emit completion signal
+        self.detection_complete.emit(results)
+    
+    def get_installation_guide(self, tool_name: str) -> str:
+        """Get installation guide for a tool."""
+        return self._dependency_checker.get_installation_guide(tool_name)
+    
+    def validate_tool_path(self, path: str, tool_name: str) -> ToolInfo:
+        """Validate a tool path."""
+        return self._dependency_checker.validate_tool_path(path, tool_name)
+    
+    def _save_tool_detection_cache(self, results: Dict[str, ToolInfo]) -> None:
+        """Save tool detection results to cache file."""
+        try:
+            cache_data = {
+                "timestamp": datetime.now().isoformat(),
+                "results": {
+                    tool: info.to_dict() for tool, info in results.items()
+                }
+            }
+            
+            with open(self._tool_detection_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Failed to save tool detection cache: {e}")
+    
+    def _load_tool_detection_cache(self) -> Optional[Dict[str, ToolInfo]]:
+        """Load tool detection results from cache file."""
+        try:
+            if not self._tool_detection_cache_file.exists():
+                return None
+            
+            with open(self._tool_detection_cache_file, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            # Check if cache is still valid (within 1 hour)
+            cache_time = datetime.fromisoformat(cache_data["timestamp"])
+            if datetime.now() - cache_time > timedelta(hours=1):
+                return None
+            
+            # Convert back to ToolInfo objects
+            results = {}
+            for tool, info_dict in cache_data["results"].items():
+                results[tool] = ToolInfo.from_dict(info_dict)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Failed to load tool detection cache: {e}")
+            return None
     
     def validate_current_settings(self) -> ValidationResult:
         """Validate current settings."""

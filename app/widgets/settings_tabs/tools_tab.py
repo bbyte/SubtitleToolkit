@@ -5,6 +5,7 @@ Provides interface for configuring tool paths, dependency detection,
 and system tool management.
 """
 
+from typing import Dict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QCheckBox, QTextEdit,
@@ -13,34 +14,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QThread, QObject
 from PySide6.QtGui import QFont, QPalette
 
-from ...config import ConfigManager, ToolStatus, ToolInfo, ValidationResult, DependencyChecker
-
-
-class ToolDetectionWorker(QObject):
-    """Worker for background tool detection."""
-    
-    detection_complete = Signal(str, ToolInfo)  # tool_name, tool_info
-    all_complete = Signal()
-    
-    def __init__(self, tools: list):
-        super().__init__()
-        self.tools = tools
-    
-    def run(self):
-        """Run tool detection for all tools."""
-        for tool in self.tools:
-            if tool == "ffmpeg":
-                info = DependencyChecker.detect_ffmpeg()
-            elif tool == "ffprobe":
-                info = DependencyChecker.detect_ffprobe()
-            elif tool == "mkvextract":
-                info = DependencyChecker.detect_mkvextract()
-            else:
-                info = ToolInfo(status=ToolStatus.NOT_FOUND)
-            
-            self.detection_complete.emit(tool, info)
-        
-        self.all_complete.emit()
+from ...config import ConfigManager, ValidationResult
+from ...utils import ToolStatus, ToolInfo
 
 
 class StatusIndicator(QLabel):
@@ -89,6 +64,24 @@ class StatusIndicator(QLabel):
                 }
             """)
             self.setText("!")
+        elif status == ToolStatus.TESTING:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #2196F3;
+                    border-radius: 8px;
+                    border: 1px solid #1976D2;
+                }
+            """)
+            self.setText("⟳")
+        elif status == ToolStatus.VERSION_MISMATCH:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #ff9800;
+                    border-radius: 8px;
+                    border: 1px solid #f57c00;
+                }
+            """)
+            self.setText("⚠")
         else:  # INVALID
             self.setStyleSheet("""
                 QLabel {
@@ -105,7 +98,9 @@ class StatusIndicator(QLabel):
             ToolStatus.FOUND: "Tool found and working",
             ToolStatus.NOT_FOUND: "Tool not found",
             ToolStatus.ERROR: "Error detecting tool",
-            ToolStatus.INVALID: "Tool found but invalid"
+            ToolStatus.INVALID: "Tool found but invalid",
+            ToolStatus.TESTING: "Currently testing tool...",
+            ToolStatus.VERSION_MISMATCH: "Tool found but version too old"
         }
         return status_texts.get(status, "Unknown status")
 
@@ -134,6 +129,9 @@ class ToolsTab(QWidget):
         
         self._init_ui()
         self._connect_signals()
+        
+        # Connect to config manager signals for real-time updates
+        self.config_manager.tool_detected.connect(self._on_tool_detected)
         
     def _init_ui(self):
         """Initialize the user interface."""
@@ -297,24 +295,19 @@ class ToolsTab(QWidget):
             )
     
     def _detect_all_tools(self):
-        """Detect all tools in background."""
+        """Detect all tools using enhanced background detection."""
         # Show progress
         self.detection_progress.setVisible(True)
-        self.detection_progress.setRange(0, 0)  # Indeterminate
+        self.detection_progress.setRange(0, 100)
+        self.detection_progress.setValue(0)
         self.detect_button.setEnabled(False)
         
-        # Create worker thread
-        self._detection_thread = QThread()
-        self._detection_worker = ToolDetectionWorker(["ffmpeg", "ffprobe", "mkvextract"])
-        self._detection_worker.moveToThread(self._detection_thread)
+        # Connect progress signals
+        self.config_manager.detection_progress.connect(self._on_detection_progress)
+        self.config_manager.detection_complete.connect(self._on_detection_complete)
         
-        # Connect signals
-        self._detection_thread.started.connect(self._detection_worker.run)
-        self._detection_worker.detection_complete.connect(self._on_tool_detected)
-        self._detection_worker.all_complete.connect(self._on_detection_complete)
-        
-        # Start detection
-        self._detection_thread.start()
+        # Start background detection
+        self.config_manager.detect_all_tools_background(force_refresh=True)
     
     def _on_tool_detected(self, tool_name: str, tool_info: ToolInfo):
         """Handle individual tool detection completion."""
@@ -330,30 +323,55 @@ class ToolsTab(QWidget):
             if not current_path:  # Only update if empty
                 self._path_inputs[tool_name].setText(tool_info.path)
     
-    def _on_detection_complete(self):
+    def _on_detection_progress(self, tool_name: str, percentage: int):
+        """Handle detection progress updates."""
+        if tool_name == "complete":
+            self.detection_progress.setValue(100)
+        else:
+            self.detection_progress.setValue(percentage)
+            # Show which tool is being tested
+            if percentage < 100:
+                self.detect_button.setText(f"Testing {tool_name}...")
+    
+    def _on_detection_complete(self, results: Dict[str, ToolInfo]):
         """Handle detection completion."""
+        # Update tool info cache
+        self._tool_info.update(results)
+        
         # Hide progress and re-enable button
         self.detection_progress.setVisible(False)
         self.detect_button.setEnabled(True)
+        self.detect_button.setText("Detect Tools")
         
-        # Clean up thread
-        self._detection_thread.quit()
-        self._detection_thread.wait()
+        # Disconnect signals to prevent duplicate connections
+        self.config_manager.detection_progress.disconnect(self._on_detection_progress)
+        self.config_manager.detection_complete.disconnect(self._on_detection_complete)
         
-        # Update installation guide with missing tools
-        missing_tools = [
-            tool for tool, info in self._tool_info.items()
-            if info.status != ToolStatus.FOUND
+        # Update installation guide with missing or problematic tools
+        problematic_tools = [
+            tool for tool, info in results.items()
+            if info.status not in [ToolStatus.FOUND]
         ]
         
-        if missing_tools:
-            guide_text = "Missing tools detected:\n\n"
-            for tool in missing_tools:
-                guide_text += f"{tool.upper()}:\n"
-                guide_text += DependencyChecker.get_installation_guide(tool) + "\n\n"
+        if problematic_tools:
+            guide_text = "Tool status summary:\n\n"
+            for tool in problematic_tools:
+                info = results[tool]
+                guide_text += f"{tool.upper()}: {info.status_description}\n"
+                if info.error_message:
+                    guide_text += f"  Error: {info.error_message}\n"
+                guide_text += f"  Installation: {self.config_manager.get_installation_guide(tool)}\n\n"
             self.guide_text.setPlainText(guide_text)
         else:
-            self.guide_text.setPlainText("All tools detected successfully!")
+            # Show success summary with versions
+            guide_text = "✅ All tools detected successfully!\n\n"
+            for tool, info in results.items():
+                if info.status == ToolStatus.FOUND:
+                    guide_text += f"{tool.upper()}: {info.version}"
+                    if info.installation_method:
+                        guide_text += f" (via {info.installation_method})"
+                    guide_text += "\n"
+            self.guide_text.setPlainText(guide_text)
     
     def _browse_tool_path(self, tool_name: str):
         """Browse for tool executable path."""
@@ -379,12 +397,15 @@ class ToolsTab(QWidget):
             )
             return
         
+        # Show testing status immediately
+        self._status_indicators[tool_name].set_status(ToolStatus.TESTING)
+        
         # Disable test button during testing
         self._test_buttons[tool_name].setEnabled(False)
         self._test_buttons[tool_name].setText("Testing...")
         
-        # Validate the path
-        tool_info = DependencyChecker.validate_tool_path(path, tool_name)
+        # Validate the path using enhanced checker
+        tool_info = self.config_manager.validate_tool_path(path, tool_name)
         self._tool_info[tool_name] = tool_info
         
         # Update status indicator
@@ -394,17 +415,31 @@ class ToolsTab(QWidget):
         self._test_buttons[tool_name].setEnabled(True)
         self._test_buttons[tool_name].setText("Test")
         
-        # Show result message
+        # Show detailed result message
         if tool_info.status == ToolStatus.FOUND:
-            QMessageBox.information(
-                self, "Tool Valid",
-                f"{tool_name} is working correctly.\n\nVersion: {tool_info.version}"
-            )
+            message = f"{tool_name} is working correctly!\n\n"
+            message += f"Version: {tool_info.version}\n"
+            message += f"Path: {tool_info.path}\n"
+            if tool_info.installation_method:
+                message += f"Installation: {tool_info.installation_method}\n"
+            if tool_info.minimum_version:
+                message += f"Minimum required: {tool_info.minimum_version}\n"
+                message += f"Requirements met: {'✓' if tool_info.meets_requirements else '✗'}"
+            
+            QMessageBox.information(self, "Tool Valid", message)
+        elif tool_info.status == ToolStatus.VERSION_MISMATCH:
+            message = f"{tool_name} was found but doesn't meet version requirements.\n\n"
+            message += f"Found version: {tool_info.version}\n"
+            message += f"Required version: {tool_info.minimum_version}\n\n"
+            message += "Please update to a newer version."
+            
+            QMessageBox.warning(self, "Version Too Old", message)
         else:
-            QMessageBox.warning(
-                self, "Tool Invalid",
-                f"{tool_name} test failed:\n\n{tool_info.error_message}"
-            )
+            message = f"{tool_name} test failed:\n\n{tool_info.error_message}"
+            if tool_info.path:
+                message += f"\n\nPath tested: {tool_info.path}"
+            
+            QMessageBox.warning(self, "Tool Invalid", message)
     
     def _on_auto_detect_changed(self, checked: bool):
         """Handle auto-detect setting change."""
@@ -430,7 +465,7 @@ class ToolsTab(QWidget):
     
     def _show_installation_guide(self, tool_name: str):
         """Show installation guide for a specific tool."""
-        guide = DependencyChecker.get_installation_guide(tool_name)
+        guide = self.config_manager.get_installation_guide(tool_name)
         self.guide_text.setPlainText(f"Installation guide for {tool_name.upper()}:\n\n{guide}")
     
     def load_settings(self, settings: dict):
