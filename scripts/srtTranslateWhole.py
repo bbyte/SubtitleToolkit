@@ -10,6 +10,8 @@ import concurrent.futures
 from tqdm import tqdm
 import time
 import sys
+import json
+from datetime import datetime, timezone
 
 # Load environment variables
 load_dotenv()
@@ -30,15 +32,51 @@ LMSTUDIO_MODELS = ["local"]
 # Maximum retries for invalid chunks
 MAX_RETRIES = 3
 
+# Global JSONL mode flag
+JSONL_MODE = False
+
+def emit_jsonl(event_type, msg, progress=None, data=None):
+    """Emit a JSONL event to stdout if in JSONL mode"""
+    if not JSONL_MODE:
+        return
+    
+    event = {
+        "ts": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+        "stage": "translate",
+        "type": event_type,
+        "msg": msg
+    }
+    
+    if progress is not None:
+        event["progress"] = progress
+    
+    if data is not None:
+        event["data"] = data
+    
+    print(json.dumps(event), flush=True)
+
+def log_output(msg, color_code="", jsonl_type=None, progress=None, data=None):
+    """Output message with color in normal mode or JSONL in JSONL mode"""
+    if JSONL_MODE and jsonl_type:
+        emit_jsonl(jsonl_type, msg, progress, data)
+    elif not JSONL_MODE:
+        print(f"{color_code}{msg}\033[0m" if color_code else msg)
+
 def animate_progress(description):
-    animation = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    idx = 0
-    while True:
-        sys.stdout.write(f"\r\033[1;36m{animation[idx]} {description}\033[0m")
-        sys.stdout.flush()
-        time.sleep(0.1)  # Add a small delay to make animation visible
-        idx = (idx + 1) % len(animation)
-        yield
+    if JSONL_MODE:
+        # In JSONL mode, don't animate, just emit a start event
+        emit_jsonl("info", description)
+        while True:
+            yield
+    else:
+        animation = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        idx = 0
+        while True:
+            sys.stdout.write(f"\r\033[1;36m{animation[idx]} {description}\033[0m")
+            sys.stdout.flush()
+            time.sleep(0.1)  # Add a small delay to make animation visible
+            idx = (idx + 1) % len(animation)
+            yield
 
 def split_into_chunks(content, chunk_size=50):
     """Split content into chunks of approximately chunk_size subtitles each"""
@@ -252,7 +290,10 @@ def validate_srt_chunk(chunk, strict_numbering=False):
                 error_context.append('⚠️ Error occurred here ⚠️')
                 
                 debug_text = '\n'.join(error_context)
-                tqdm.write(f"\n\033[96mContext around error:\n{debug_text}\033[0m")
+                if not JSONL_MODE:
+                    tqdm.write(f"\n\033[96mContext around error:\n{debug_text}\033[0m")
+                else:
+                    emit_jsonl("warning", f"Context around error: {debug_text}")
                 return False, f"Expected subtitle number, got: {line}"
             
             last_number = int(line)
@@ -283,7 +324,10 @@ def validate_srt_chunk(chunk, strict_numbering=False):
                 error_context.append('⚠️ Error occurred here ⚠️')
                 
                 debug_text = '\n'.join(error_context)
-                tqdm.write(f"\n\033[96mContext around error:\n{debug_text}\033[0m")
+                if not JSONL_MODE:
+                    tqdm.write(f"\n\033[96mContext around error:\n{debug_text}\033[0m")
+                else:
+                    emit_jsonl("warning", f"Context around error: {debug_text}")
                 return False, f"Invalid timestamp format: {line}"
             
         elif state == 'text':
@@ -485,12 +529,23 @@ def retry_translation(chunk, provider, model, system_prompt, max_retries=MAX_RET
             debug_text = '\n'.join(debug_lines)
             if len(debug_lines) < len(translated.split('\n')):
                 debug_text += "\n..."
-            tqdm.write(f"\n\033[95mAI Response Sample:\n{debug_text}\033[0m")
+            if not JSONL_MODE:
+                tqdm.write(f"\n\033[95mAI Response Sample:\n{debug_text}\033[0m")
+            else:
+                emit_jsonl("warning", f"AI Response Sample: {debug_text}")
             if isinstance(result, str):  # If result is an error message
-                tqdm.write(f"\033[93m⚠️ Attempt {attempt + 1}/{max_retries}: Invalid SRT format in chunk: {result}\033[0m")
+                warning_msg = f"Attempt {attempt + 1}/{max_retries}: Invalid SRT format in chunk: {result}"
+                if not JSONL_MODE:
+                    tqdm.write(f"\033[93m⚠️ {warning_msg}\033[0m")
+                else:
+                    emit_jsonl("warning", warning_msg)
             
         except Exception as e:
-            tqdm.write(f"\033[91m❌ Attempt {attempt + 1}/{max_retries} failed with error: {str(e)}\033[0m")
+            error_msg = f"Attempt {attempt + 1}/{max_retries} failed with error: {str(e)}"
+            if not JSONL_MODE:
+                tqdm.write(f"\033[91m❌ {error_msg}\033[0m")
+            else:
+                emit_jsonl("error", error_msg)
     
     # If all retries failed, return the original chunk and failure status
     return chunk, False
@@ -549,15 +604,27 @@ def retry_translation_with_split(chunk, provider, model, system_prompt, split_de
         debug_text = '\n'.join(debug_lines)
         if len(debug_lines) < len(translated.split('\n')):
             debug_text += "\n..."
-        tqdm.write(f"\n\033[95mAI Response Sample:\n{debug_text}\033[0m")
-        tqdm.write(f"\033[93m⚠️ Invalid SRT format in chunk: {result}\033[0m")
+        if not JSONL_MODE:
+            tqdm.write(f"\n\033[95mAI Response Sample:\n{debug_text}\033[0m")
+            tqdm.write(f"\033[93m⚠️ Invalid SRT format in chunk: {result}\033[0m")
+        else:
+            emit_jsonl("warning", f"AI Response Sample: {debug_text}")
+            emit_jsonl("warning", f"Invalid SRT format in chunk: {result}")
         
     except Exception as e:
-        tqdm.write(f"\033[91m❌ Translation failed with error: {str(e)}\033[0m")
+        error_msg = f"Translation failed with error: {str(e)}"
+        if not JSONL_MODE:
+            tqdm.write(f"\033[91m❌ {error_msg}\033[0m")
+        else:
+            emit_jsonl("error", error_msg)
     
     # If we've reached max splits, return the original chunk with a warning
     if split_depth >= max_splits:
-        tqdm.write(f"\033[93m⚠️ Max split depth reached. Some subtitles may be invalid.\033[0m")
+        warning_msg = "Max split depth reached. Some subtitles may be invalid."
+        if not JSONL_MODE:
+            tqdm.write(f"\033[93m⚠️ {warning_msg}\033[0m")
+        else:
+            emit_jsonl("warning", warning_msg)
         return chunk, False
     
     # Split the chunk and try each half
@@ -567,7 +634,11 @@ def retry_translation_with_split(chunk, provider, model, system_prompt, split_de
     if not second_half:
         return chunk, False
     
-    tqdm.write(f"\n\033[96mSplitting chunk at depth {split_depth + 1} and retrying translation\033[0m")
+    split_msg = f"Splitting chunk at depth {split_depth + 1} and retrying translation"
+    if not JSONL_MODE:
+        tqdm.write(f"\n\033[96m{split_msg}\033[0m")
+    else:
+        emit_jsonl("info", split_msg)
     
     # Translate each half recursively
     first_translated, first_success = retry_translation_with_split(
@@ -643,8 +714,14 @@ def translate_with_lmstudio(content, model, system_prompt):
         translated_text = response.choices[0].message.content.strip()
         return clean_openai_response(translated_text)  # Use same cleaning as OpenAI
     except Exception as e:
-        print(f"\n⚠️ Error with LM Studio: {str(e)}")
-        print("Make sure LM Studio is running and a model is loaded.")
+        error_msg = f"Error with LM Studio: {str(e)}"
+        helper_msg = "Make sure LM Studio is running and a model is loaded."
+        if not JSONL_MODE:
+            print(f"\n⚠️ {error_msg}")
+            print(helper_msg)
+        else:
+            emit_jsonl("error", error_msg)
+            emit_jsonl("error", helper_msg)
         sys.exit(1)
 
 def process_chunk(data):
@@ -655,7 +732,10 @@ def process_chunk(data):
         return index, translated_text
     except Exception as e:
         error_msg = f"ERROR: Failed to translate chunk {index + 1}: {str(e)}"
-        tqdm.write(f"\n\033[91m{error_msg}\033[0m")
+        if not JSONL_MODE:
+            tqdm.write(f"\n\033[91m{error_msg}\033[0m")
+        else:
+            emit_jsonl("error", error_msg)
         return index, error_msg
 
 def translate_srt_content(content, context=None, provider="openai", model=None, max_workers=None, chunk_size=None, source_lang="English", target_lang="Bulgarian"):
@@ -677,30 +757,63 @@ def translate_srt_content(content, context=None, provider="openai", model=None, 
     if max_workers is None:
         max_workers = 2 if provider == "claude" else 10
     
+    # Emit initial progress info
+    if JSONL_MODE:
+        emit_jsonl("info", f"Starting translation with {model} ({max_workers} workers, chunk size {chunk_size})", 0, {
+            "provider": provider,
+            "model": model,
+            "max_workers": max_workers,
+            "chunk_size": chunk_size,
+            "total_chunks": total_chunks
+        })
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_chunk = {executor.submit(process_chunk, data): data[1] for data in chunk_data}
         
-        with tqdm(total=total_chunks,
-                 desc=f"\033[1;36mTranslating with {model} ({max_workers} workers, chunk size {chunk_size})\033[0m",
-                 unit="chunk",
-                 bar_format="{desc}: {percentage:3.0f}%|{bar:30}\033[92m|\033[0m{n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-                 colour='green') as pbar:
-            
+        if JSONL_MODE:
+            # JSONL mode - no tqdm progress bar
+            completed_chunks = 0
             for future in concurrent.futures.as_completed(future_to_chunk):
                 chunk_index = future_to_chunk[future]
                 try:
                     index, translated_text = future.result()
                     if translated_text.startswith("ERROR:"):
-                        tqdm.write(f"\033[91mChunk {index + 1} failed: {translated_text}\033[0m")
+                        emit_jsonl("error", f"Chunk {index + 1} failed: {translated_text}")
                     else:
                         translated_chunks[index] = translated_text
-                    pbar.update(1)
+                        emit_jsonl("info", f"Completed chunk {index + 1}/{total_chunks}")
+                    completed_chunks += 1
+                    progress = int((completed_chunks / total_chunks) * 100)
+                    emit_jsonl("progress", f"Translation progress: {completed_chunks}/{total_chunks} chunks", progress)
                 except Exception as e:
-                    tqdm.write(f"\033[91mChunk {chunk_index + 1} generated an exception: {str(e)}\033[0m")
+                    emit_jsonl("error", f"Chunk {chunk_index + 1} generated an exception: {str(e)}")
+        else:
+            # Normal mode with tqdm progress bar
+            with tqdm(total=total_chunks,
+                     desc=f"\033[1;36mTranslating with {model} ({max_workers} workers, chunk size {chunk_size})\033[0m",
+                     unit="chunk",
+                     bar_format="{desc}: {percentage:3.0f}%|{bar:30}\033[92m|\033[0m{n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+                     colour='green') as pbar:
+                
+                for future in concurrent.futures.as_completed(future_to_chunk):
+                    chunk_index = future_to_chunk[future]
+                    try:
+                        index, translated_text = future.result()
+                        if translated_text.startswith("ERROR:"):
+                            tqdm.write(f"\033[91mChunk {index + 1} failed: {translated_text}\033[0m")
+                        else:
+                            translated_chunks[index] = translated_text
+                        pbar.update(1)
+                    except Exception as e:
+                        tqdm.write(f"\033[91mChunk {chunk_index + 1} generated an exception: {str(e)}\033[0m")
 
     # Check for any failed chunks
     if any(chunk is None for chunk in translated_chunks):
-        print("\n⚠️ Some chunks failed to translate. Check the errors above.")
+        error_msg = "Some chunks failed to translate. Check the errors above."
+        if not JSONL_MODE:
+            print(f"\n⚠️ {error_msg}")
+        else:
+            emit_jsonl("error", error_msg)
         sys.exit(1)
 
     # Join all chunks ensuring no content is lost
@@ -740,32 +853,48 @@ def read_file_with_encoding(file_path):
     raise UnicodeDecodeError(f"Failed to read file with any of these encodings: {', '.join(encodings)}")
 
 def process_srt_file(input_file, output_file, context=None, provider="openai", model=None, max_workers=None, chunk_size=None, source_lang="English", target_lang="Bulgarian"):
-    print(f"\n📂 Reading file: {input_file}")
+    log_output(f"Reading file: {input_file}", "\n📂 ", "info")
     
     try:
         content = read_file_with_encoding(input_file)
     except UnicodeDecodeError as e:
-        print(f"\n❌ Error reading file: {e}")
+        error_msg = f"Error reading file: {e}"
+        log_output(error_msg, "\n❌ ", "error")
         sys.exit(1)
 
     # Count the number of subtitle entries for progress info
     subtitle_count = len([line for line in content.split('\n') if line.strip().isdigit()])
-    print(f"📊 Found {subtitle_count} subtitles to translate")
+    log_output(f"Found {subtitle_count} subtitles to translate", "📊 ", "info", data={"subtitle_count": subtitle_count})
     
     context_msg = f" (with provided context)" if context else ""
-    print(f"🔄 Starting translation using {provider} {model}{context_msg}...")
+    log_output(f"Starting translation using {provider} {model}{context_msg}...", "🔄 ", "info", data={
+        "provider": provider,
+        "model": model,
+        "has_context": bool(context),
+        "source_lang": source_lang,
+        "target_lang": target_lang
+    })
     
     start_time = time.time()
     translated_content = translate_srt_content(content, context, provider, model, max_workers, chunk_size, source_lang, target_lang)
     end_time = time.time()
     
     duration = end_time - start_time
-    print(f"✨ Translation completed in {duration:.1f} seconds")
+    log_output(f"Translation completed in {duration:.1f} seconds", "✨ ", "info", data={"duration": duration})
     
-    print(f"💾 Writing translation to: {output_file}")
+    log_output(f"Writing translation to: {output_file}", "💾 ", "info")
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(translated_content)
-    print(f"✅ File saved successfully\n")
+    log_output("File saved successfully", "✅ ", "info")
+    
+    # Emit final result in JSONL mode
+    if JSONL_MODE:
+        emit_jsonl("result", "Translation completed successfully", 100, {
+            "input_file": input_file,
+            "output_file": output_file,
+            "duration": duration,
+            "outputs": [output_file]
+        })
 
 def process_directory(directory, context=None, provider="openai", model=None, max_workers=None, chunk_size=None, source_lang="English", target_lang="Bulgarian"):
     # Get list of SRT files first
@@ -776,20 +905,53 @@ def process_directory(directory, context=None, provider="openai", model=None, ma
                 srt_files.append(os.path.join(root, file))
     
     if not srt_files:
-        print("❌ No SRT files found in directory")
+        log_output("No SRT files found in directory", "❌ ", "error")
         return
         
-    print(f"📁 Found {len(srt_files)} SRT files to process")
+    log_output(f"Found {len(srt_files)} SRT files to process", "📁 ", "info", data={"file_count": len(srt_files)})
     
-    with tqdm(total=len(srt_files), 
-             desc="\033[1;36mProcessing files\033[0m",
-             bar_format="{desc}: {percentage:3.0f}%|{bar:30}\033[92m|\033[0m{n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-             colour='green') as pbar:
-        for file in srt_files:
+    outputs = []
+    failed_files = []
+    
+    if JSONL_MODE:
+        # JSONL mode - no tqdm progress bar
+        for i, file in enumerate(srt_files):
             input_path = file
             output_path = get_output_filename(input_path)
-            process_srt_file(input_path, output_path, context, provider, model, max_workers, chunk_size, source_lang, target_lang)
-            pbar.update(1)
+            try:
+                process_srt_file(input_path, output_path, context, provider, model, max_workers, chunk_size, source_lang, target_lang)
+                outputs.append(output_path)
+                progress = int(((i + 1) / len(srt_files)) * 100)
+                emit_jsonl("progress", f"Processing files: {i + 1}/{len(srt_files)}", progress)
+            except Exception as e:
+                failed_files.append({"file": input_path, "error": str(e)})
+                emit_jsonl("error", f"Failed to process {input_path}: {str(e)}")
+        
+        # Emit final result
+        emit_jsonl("result", "Directory processing completed", 100, {
+            "directory": directory,
+            "total_files": len(srt_files),
+            "successful_files": len(outputs),
+            "failed_files": len(failed_files),
+            "outputs": outputs,
+            "failures": failed_files
+        })
+    else:
+        # Normal mode with tqdm progress bar
+        with tqdm(total=len(srt_files), 
+                 desc="\033[1;36mProcessing files\033[0m",
+                 bar_format="{desc}: {percentage:3.0f}%|{bar:30}\033[92m|\033[0m{n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+                 colour='green') as pbar:
+            for file in srt_files:
+                input_path = file
+                output_path = get_output_filename(input_path)
+                try:
+                    process_srt_file(input_path, output_path, context, provider, model, max_workers, chunk_size, source_lang, target_lang)
+                    outputs.append(output_path)
+                except Exception as e:
+                    failed_files.append({"file": input_path, "error": str(e)})
+                    print(f"❌ Failed to process {input_path}: {str(e)}")
+                pbar.update(1)
 
 def get_output_filename(input_file, output_file=None):
     if output_file:
@@ -810,29 +972,35 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--chunk-size", type=int, help="Number of subtitles per chunk")
     parser.add_argument("--source-lang", default="English", help="Source language (default: English)")
     parser.add_argument("--target-lang", default="Bulgarian", help="Target language (default: Bulgarian)")
+    parser.add_argument("--jsonl", action="store_true", help="Enable JSONL output mode (suppresses colored output)")
     args = parser.parse_args()
+    
+    # Set global JSONL mode
+    JSONL_MODE = args.jsonl
 
     # Validate and set default model based on provider
     if args.provider == "openai":
         if not args.model:
             args.model = "gpt-4o-mini"
         elif args.model not in OPENAI_MODELS:
-            print(f"Error: Invalid OpenAI model. Available models: {', '.join(OPENAI_MODELS)}")
+            error_msg = f"Error: Invalid OpenAI model. Available models: {', '.join(OPENAI_MODELS)}"
+            log_output(error_msg, "", "error")
             sys.exit(1)
     elif args.provider == "claude":
         if not args.model:
             args.model = "claude-3-5-sonnet-20241022"
         elif args.model not in CLAUDE_MODELS:
-            print(f"Error: Invalid Claude model. Available models: {', '.join(CLAUDE_MODELS)}")
+            error_msg = f"Error: Invalid Claude model. Available models: {', '.join(CLAUDE_MODELS)}"
+            log_output(error_msg, "", "error")
             sys.exit(1)
     else:  # lmstudio
         args.model = "local"  # LM Studio always uses the currently loaded model
 
     if args.directory:
-        print(f"Starting translation of all SRT files in {args.directory}")
+        log_output(f"Starting translation of all SRT files in {args.directory}", "", "info")
         process_directory(args.directory, args.context, args.provider, args.model, args.workers, args.chunk_size, args.source_lang, args.target_lang)
-        print("All translations complete")
+        log_output("All translations complete", "", "info")
     else:
         output_file = get_output_filename(args.file, args.output)
         process_srt_file(args.file, output_file, args.context, args.provider, args.model, args.workers, args.chunk_size, args.source_lang, args.target_lang)
-        print("Translation complete")
+        log_output("Translation complete", "", "info")

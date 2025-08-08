@@ -1,0 +1,13 @@
+# SubtitleToolkit Desktop Application Requirements
+
+# GUI Framework
+PySide6>=6.5.0
+
+# Existing CLI dependencies
+openai>=1.0.0
+anthropic>=0.18.0
+python-dotenv>=1.0.0
+tqdm>=4.64.0
+
+# Additional dependencies for desktop app
+# (pathlib is built-in since Python 3.4)
