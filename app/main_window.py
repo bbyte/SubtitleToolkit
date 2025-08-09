@@ -24,6 +24,7 @@ from app.dialogs.settings_dialog import SettingsDialog
 from app.config.config_manager import ConfigManager
 from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
 from app.zoom_manager import ZoomManager
+from app.window_state_manager import WindowStateManager
 
 
 class MainWindow(QMainWindow):
@@ -61,13 +62,19 @@ class MainWindow(QMainWindow):
         # Zoom manager for browser-style zoom functionality
         self.zoom_manager = ZoomManager(self.config_manager, self)
         
+        # Window state manager for window geometry persistence
+        self.window_state_manager = WindowStateManager(self, self.config_manager, self)
+        
         # Script runner for subprocess management
         self.script_runner = ScriptRunner(self)
         
         # Window properties
         self.setWindowTitle("SubtitleToolkit")
         self.setMinimumSize(1000, 700)
-        self.resize(1200, 800)
+        
+        # Try to restore window state, otherwise use defaults
+        if not self.window_state_manager.restore_window_state():
+            self.resize(1200, 800)
         
         # Initialize UI components
         self._init_components()
@@ -286,6 +293,9 @@ class MainWindow(QMainWindow):
         
         # Script runner signals
         self._connect_runner_signals()
+        
+        # Window state manager signals
+        self.window_state_manager.validation_failed.connect(self._on_window_state_error)
     
     def _on_project_changed(self, directory: str) -> None:
         """Handle project directory change."""
@@ -336,6 +346,10 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Error: {message}", 5000)
         elif level == "warning":
             self.status_bar.showMessage(f"Warning: {message}", 3000)
+    
+    def _on_window_state_error(self, error_message: str) -> None:
+        """Handle window state management errors."""
+        self.log_panel.add_message("warning", f"Window state: {error_message}")
     
     def _update_project_dependent_ui(self, directory: str) -> None:
         """Update UI elements that depend on project selection."""
@@ -492,10 +506,13 @@ class MainWindow(QMainWindow):
             # Cancel running processes
             self.script_runner.cancel_current_process()
         
-        # Save current zoom level to settings before closing
+        # Save current zoom level and window state to settings before closing
         ui_settings = self.config_manager.get_settings("ui")
         ui_settings["zoom_level"] = self.zoom_manager.current_zoom
         self.config_manager.update_settings("ui", ui_settings, save=True)
+        
+        # Clean up window state manager and save final state
+        self.window_state_manager.cleanup()
         
         event.accept()
     

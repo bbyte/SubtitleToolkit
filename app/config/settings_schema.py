@@ -107,6 +107,14 @@ class SettingsSchema:
             "ui": {
                 "remember_window_size": True,
                 "remember_window_position": True,
+                "window_geometry": {
+                    "x": 100,
+                    "y": 100,
+                    "width": 1200,
+                    "height": 800,
+                    "is_maximized": False,
+                    "is_minimized": False,
+                },
                 "default_log_filter": "info",
                 "show_advanced_options": False,
                 "zoom_level": 1.0,
@@ -282,6 +290,42 @@ class SettingsSchema:
             zoom = ui["zoom_level"]
             if not isinstance(zoom, (int, float)) or not (0.5 <= zoom <= 2.0):
                 result.errors.append("ui.zoom_level must be a number between 0.5 and 2.0")
+        
+        # Validate window geometry
+        if "window_geometry" in ui:
+            SettingsSchema._validate_window_geometry(ui["window_geometry"], result)
+    
+    @staticmethod
+    def _validate_window_geometry(geometry: Dict[str, Any], result: ValidationResult) -> None:
+        """Validate window geometry configuration."""
+        if not isinstance(geometry, dict):
+            result.errors.append("ui.window_geometry must be a dictionary")
+            return
+        
+        # Position coordinates should be integers
+        for coord in ["x", "y"]:
+            if coord in geometry:
+                value = geometry[coord]
+                if not isinstance(value, int):
+                    result.errors.append(f"ui.window_geometry.{coord} must be an integer")
+                elif value < -10000 or value > 10000:  # Reasonable bounds
+                    result.warnings.append(f"ui.window_geometry.{coord} is outside reasonable range")
+        
+        # Size dimensions should be positive integers
+        for dim in ["width", "height"]:
+            if dim in geometry:
+                value = geometry[dim]
+                if not isinstance(value, int):
+                    result.errors.append(f"ui.window_geometry.{dim} must be an integer")
+                elif value < 400:  # Minimum reasonable window size
+                    result.errors.append(f"ui.window_geometry.{dim} must be at least 400 pixels")
+                elif value > 10000:  # Maximum reasonable window size
+                    result.warnings.append(f"ui.window_geometry.{dim} is very large (>10000px)")
+        
+        # Window state flags should be boolean
+        for flag in ["is_maximized", "is_minimized"]:
+            if flag in geometry and not isinstance(geometry[flag], bool):
+                result.errors.append(f"ui.window_geometry.{flag} must be a boolean")
     
     @staticmethod
     def get_supported_languages() -> Dict[str, str]:

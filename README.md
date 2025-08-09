@@ -19,6 +19,7 @@ A professional cross-platform desktop application for subtitle processing, built
 ### ✅ Desktop Experience (Fully Working)  
 - **🖥️ Modern GUI**: Professional PySide6 interface with dark theme
 - **🔍 Browser-style Zoom**: Ctrl/Cmd +/- zoom controls (50%-200%) with persistent state
+- **📐 Window State Memory**: Automatic save/restore of window size and position
 - **📊 Real-time Progress**: Live progress tracking and logging for all operations
 - **⚙️ Comprehensive Settings**: Tool detection, API management, and workflow configuration
 - **🔍 Dependency Detection**: Automatic detection of ffmpeg/mkvextract with installation guidance
@@ -178,7 +179,18 @@ The application includes browser-style zoom functionality for better accessibili
 - **Status Display**: Current zoom level shown in status bar
 - **Persistent State**: Zoom level saved and restored between sessions
 
-#### 5. Settings Configuration
+#### 5. Window State Memory
+The application automatically remembers your window preferences:
+
+**📐 Window State Features**
+- **Size Memory**: Window dimensions automatically saved when resized
+- **Position Memory**: Window location automatically saved when moved
+- **Session Restore**: Window size and position restored on next application start
+- **Multi-monitor Support**: Works correctly with multiple monitor setups
+- **Smart Validation**: Ensures restored windows are visible on current screens
+- **Automatic Operation**: No user action required - works seamlessly in background
+
+#### 6. Settings Configuration
 Access **File → Settings** (Ctrl+,) for:
 
 **🔧 Tools Tab**
