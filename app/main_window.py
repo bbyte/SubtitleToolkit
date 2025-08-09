@@ -7,7 +7,7 @@ according to the workflow specifications.
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTabWidget, QMenuBar, QStatusBar, QMessageBox
+    QTabWidget, QMenuBar, QStatusBar, QMessageBox, QLabel
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QAction, QKeySequence
@@ -21,8 +21,9 @@ from app.widgets.results_panel import ResultsPanel
 from app.widgets.action_buttons import ActionButtons
 
 from app.dialogs.settings_dialog import SettingsDialog
-from app.config import ConfigManager
+from app.config.config_manager import ConfigManager
 from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
+from app.zoom_manager import ZoomManager
 
 
 class MainWindow(QMainWindow):
@@ -57,6 +58,9 @@ class MainWindow(QMainWindow):
         # Configuration manager
         self.config_manager = ConfigManager(self)
         
+        # Zoom manager for browser-style zoom functionality
+        self.zoom_manager = ZoomManager(self.config_manager, self)
+        
         # Script runner for subprocess management
         self.script_runner = ScriptRunner(self)
         
@@ -79,6 +83,9 @@ class MainWindow(QMainWindow):
         self._status_timer = QTimer()
         self._status_timer.timeout.connect(self._update_status)
         self._status_timer.start(1000)  # Update every second
+        
+        # Register UI components with zoom manager and apply initial zoom
+        self._setup_zoom_integration()
     
     def _init_components(self) -> None:
         """Initialize all UI components."""
@@ -175,6 +182,17 @@ class MainWindow(QMainWindow):
         clear_log_action.triggered.connect(self.log_panel.clear)
         edit_menu.addAction(clear_log_action)
         
+        # View menu
+        view_menu = menubar.addMenu("&View")
+        
+        # Add zoom actions to View menu
+        zoom_actions = self.zoom_manager.create_zoom_actions(self)
+        view_menu.addAction(zoom_actions["zoom_in"])
+        view_menu.addAction(zoom_actions["zoom_out"])
+        view_menu.addAction(zoom_actions["reset_zoom"])
+        
+        view_menu.addSeparator()
+        
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
         
@@ -197,6 +215,53 @@ class MainWindow(QMainWindow):
         """Create the application status bar."""
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Ready")
+        
+        # Add zoom indicator to status bar
+        self.zoom_status_label = QLabel()
+        self.zoom_status_label.setMinimumWidth(80)
+        self.zoom_status_label.setAlignment(Qt.AlignCenter)
+        self.status_bar.addPermanentWidget(self.zoom_status_label)
+        
+        # Register zoom status label with zoom manager
+        self.zoom_manager.register_status_label(self.zoom_status_label)
+    
+    def _setup_zoom_integration(self) -> None:
+        """Set up zoom integration with UI components."""
+        # Register key UI components for zoom scaling
+        widgets_to_register = [
+            self.project_selector,
+            self.stage_toggles,
+            self.stage_configurators,
+            self.progress_section,
+            self.log_panel,
+            self.results_panel,
+            self.action_buttons,
+            self.menuBar(),
+            self.status_bar
+        ]
+        
+        for widget in widgets_to_register:
+            if widget:
+                self.zoom_manager.register_widget(widget)
+        
+        # Auto-register child widgets for comprehensive zoom support
+        self.zoom_manager.auto_register_children(self, recursive=True)
+        
+        # Apply initial zoom level
+        self.zoom_manager.apply_initial_zoom()
+        
+        # Connect zoom signals for UI updates
+        self.zoom_manager.zoom_changed.connect(self._on_zoom_changed)
+        self.zoom_manager.zoom_reset.connect(self._on_zoom_reset)
+    
+    def _on_zoom_changed(self, zoom_factor: float) -> None:
+        """Handle zoom level changes."""
+        percentage = int(zoom_factor * 100)
+        self.log_panel.add_message("info", f"Zoom level changed to {percentage}%")
+    
+    def _on_zoom_reset(self) -> None:
+        """Handle zoom reset to default."""
+        self.log_panel.add_message("info", "Zoom level reset to 100%")
     
     def _connect_signals(self) -> None:
         """Connect all signal/slot relationships."""
@@ -379,6 +444,12 @@ class MainWindow(QMainWindow):
         
         # Refresh UI elements that depend on settings
         self._update_ui_from_settings()
+        
+        # Update zoom manager with new settings
+        ui_settings = self.config_manager.get_settings("ui")
+        new_zoom = ui_settings.get("zoom_level", 1.0)
+        if new_zoom != self.zoom_manager.current_zoom:
+            self.zoom_manager.set_zoom(new_zoom)
     
     def _update_ui_from_settings(self) -> None:
         """Update UI elements based on current settings."""
@@ -421,7 +492,11 @@ class MainWindow(QMainWindow):
             # Cancel running processes
             self.script_runner.cancel_current_process()
         
-        # Save settings here if needed
+        # Save current zoom level to settings before closing
+        ui_settings = self.config_manager.get_settings("ui")
+        ui_settings["zoom_level"] = self.zoom_manager.current_zoom
+        self.config_manager.update_settings("ui", ui_settings, save=True)
+        
         event.accept()
     
     def _connect_runner_signals(self) -> None:

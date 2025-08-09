@@ -18,6 +18,7 @@ A professional cross-platform desktop application for subtitle processing, built
 
 ### ✅ Desktop Experience (Fully Working)  
 - **🖥️ Modern GUI**: Professional PySide6 interface with dark theme
+- **🔍 Browser-style Zoom**: Ctrl/Cmd +/- zoom controls (50%-200%) with persistent state
 - **📊 Real-time Progress**: Live progress tracking and logging for all operations
 - **⚙️ Comprehensive Settings**: Tool detection, API management, and workflow configuration
 - **🔍 Dependency Detection**: Automatic detection of ffmpeg/mkvextract with installation guidance
@@ -165,7 +166,19 @@ Toggle and configure the stages you need:
 3. View detailed logs in the log panel  
 4. Review results in the results panel
 
-#### 4. Settings Configuration
+#### 4. Accessibility & Zoom Controls
+The application includes browser-style zoom functionality for better accessibility:
+
+**🔍 Zoom Controls**
+- **Zoom In**: `Ctrl/Cmd + Plus` - Increase font size and UI scaling
+- **Zoom Out**: `Ctrl/Cmd + Minus` - Decrease font size and UI scaling  
+- **Reset Zoom**: `Ctrl/Cmd + 0` - Return to default 100% zoom
+- **Zoom Range**: 50% minimum to 200% maximum in 10% increments
+- **View Menu**: Access zoom controls via View → Zoom In/Out/Reset
+- **Status Display**: Current zoom level shown in status bar
+- **Persistent State**: Zoom level saved and restored between sessions
+
+#### 5. Settings Configuration
 Access **File → Settings** (Ctrl+,) for:
 
 **🔧 Tools Tab**

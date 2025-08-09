@@ -109,6 +109,8 @@ class SettingsSchema:
                 "remember_window_position": True,
                 "default_log_filter": "info",
                 "show_advanced_options": False,
+                "zoom_level": 1.0,
+                "zoom_smooth_transitions": True,
             }
         }
     
@@ -138,6 +140,10 @@ class SettingsSchema:
         
         # Validate advanced section
         SettingsSchema._validate_advanced_section(settings["advanced"], result)
+        
+        # Validate UI section
+        if "ui" in settings:
+            SettingsSchema._validate_ui_section(settings["ui"], result)
         
         # Set overall validity
         result.is_valid = len(result.errors) == 0
@@ -257,6 +263,25 @@ class SettingsSchema:
             interval = advanced["progress_update_interval"]
             if not isinstance(interval, int) or interval <= 0:
                 result.errors.append("advanced.progress_update_interval must be a positive integer")
+    
+    @staticmethod
+    def _validate_ui_section(ui: Dict[str, Any], result: ValidationResult) -> None:
+        """Validate UI configuration section."""
+        # Boolean settings
+        bool_keys = ["remember_window_size", "remember_window_position", "show_advanced_options", "zoom_smooth_transitions"]
+        for key in bool_keys:
+            if key in ui and not isinstance(ui[key], bool):
+                result.errors.append(f"ui.{key} must be a boolean")
+        
+        # Default log filter should be string
+        if "default_log_filter" in ui and not isinstance(ui["default_log_filter"], str):
+            result.errors.append("ui.default_log_filter must be a string")
+        
+        # Zoom level should be float between 0.5 and 2.0
+        if "zoom_level" in ui:
+            zoom = ui["zoom_level"]
+            if not isinstance(zoom, (int, float)) or not (0.5 <= zoom <= 2.0):
+                result.errors.append("ui.zoom_level must be a number between 0.5 and 2.0")
     
     @staticmethod
     def get_supported_languages() -> Dict[str, str]:
