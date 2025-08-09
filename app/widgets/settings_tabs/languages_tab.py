@@ -386,10 +386,10 @@ class LanguagesTab(QWidget):
     def _connect_signals(self):
         """Connect widget signals."""
         # Default language changes
-        self.source_language_combo.currentDataChanged.connect(
+        self.source_language_combo.currentIndexChanged.connect(
             lambda: self.settings_changed.emit("languages")
         )
-        self.target_language_combo.currentDataChanged.connect(
+        self.target_language_combo.currentIndexChanged.connect(
             lambda: self.settings_changed.emit("languages")
         )
         

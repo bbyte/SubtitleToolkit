@@ -65,30 +65,30 @@ class StageToggles(QFrame):
         checkboxes_layout.setSpacing(30)
         
         # Extract checkbox
-        self.extract_checkbox = QCheckBox("Extract Subtitles")
-        self.extract_checkbox.setToolTip(
+        self.extract_checkbox = QCheckBox(self.tr("Extract Subtitles"))
+        self.extract_checkbox.setToolTip(self.tr(
             "Extract subtitle tracks from MKV video files\n"
             "Requires: ffmpeg/ffprobe\n"
             "Output: .srt files"
-        )
+        ))
         checkboxes_layout.addWidget(self.extract_checkbox)
         
         # Translate checkbox
-        self.translate_checkbox = QCheckBox("Translate Subtitles")
-        self.translate_checkbox.setToolTip(
+        self.translate_checkbox = QCheckBox(self.tr("Translate Subtitles"))
+        self.translate_checkbox.setToolTip(self.tr(
             "Translate SRT subtitle files using AI services\n"
             "Requires: API keys (OpenAI/Claude/LM Studio)\n"
             "Output: Translated .srt files"
-        )
+        ))
         checkboxes_layout.addWidget(self.translate_checkbox)
         
         # Sync checkbox
-        self.sync_checkbox = QCheckBox("Sync Filenames")
-        self.sync_checkbox.setToolTip(
+        self.sync_checkbox = QCheckBox(self.tr("Sync Subtitle Names"))
+        self.sync_checkbox.setToolTip(self.tr(
             "Intelligently rename SRT files to match video files\n"
             "Requires: AI service for name matching\n"
             "Output: Renamed subtitle files"
-        )
+        ))
         checkboxes_layout.addWidget(self.sync_checkbox)
         
         # Add stretch to push checkboxes to the left

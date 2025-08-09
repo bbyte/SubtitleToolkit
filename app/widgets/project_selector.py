@@ -46,7 +46,7 @@ class ProjectSelector(QFrame):
         layout.setSpacing(10)
         
         # Title
-        title_label = QLabel("Project Directory")
+        title_label = QLabel(self.tr("Select Project Folder"))
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(12)
@@ -96,7 +96,7 @@ class ProjectSelector(QFrame):
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.Directory)
         dialog.setOption(QFileDialog.ShowDirsOnly, True)
-        dialog.setWindowTitle("Select Project Directory")
+        dialog.setWindowTitle(self.tr("Select Project Folder"))
         
         # Set starting directory
         if self._selected_directory and Path(self._selected_directory).exists():

@@ -54,7 +54,7 @@ class ActionButtons(QFrame):
         layout.setSpacing(15)
         
         # Status indicator (left side)
-        self.status_label = QLabel("Ready to process")
+        self.status_label = QLabel(self.tr("Ready to process"))
         self.status_label.setStyleSheet("color: #bbb; font-style: italic;")
         layout.addWidget(self.status_label)
         
@@ -62,7 +62,7 @@ class ActionButtons(QFrame):
         layout.addStretch()
         
         # Run button
-        self.run_button = QPushButton("Run Processing")
+        self.run_button = QPushButton(self.tr("Run"))
         self.run_button.setMinimumSize(120, 40)
         self.run_button.setStyleSheet("""
             QPushButton {
@@ -91,7 +91,7 @@ class ActionButtons(QFrame):
         layout.addWidget(self.run_button)
         
         # Cancel button
-        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button = QPushButton(self.tr("Cancel"))
         self.cancel_button.setMinimumSize(100, 40)
         self.cancel_button.setStyleSheet("""
             QPushButton {
@@ -282,14 +282,14 @@ class ActionButtons(QFrame):
         
         # Update button text based on running state
         if self._is_running:
-            self.run_button.setText("Running...")
+            self.run_button.setText(self.tr("Running..."))
         else:
-            self.run_button.setText("Run Processing")
+            self.run_button.setText(self.tr("Run"))
     
     def reset_status(self) -> None:
         """Reset to initial status."""
         self._is_running = False
-        self.status_label.setText("Ready to process")
+        self.status_label.setText(self.tr("Ready to process"))
         self.status_label.setStyleSheet("color: #bbb; font-style: italic;")
         self._update_button_states()
         self._reset_run_button_style()

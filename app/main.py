@@ -20,6 +20,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.main_window import MainWindow
+from app.config.config_manager import ConfigManager
+from app.i18n import TranslationManager
 
 
 class SubtitleToolkitApp(QApplication):
@@ -35,14 +37,79 @@ class SubtitleToolkitApp(QApplication):
         self.setOrganizationName("SubtitleToolkit")
         self.setOrganizationDomain("subtitletoolkit.local")
         
+        # Initialize configuration manager first (needed for language settings)
+        self.config_manager = ConfigManager()
+        
+        # Initialize translation system
+        self.translation_manager = TranslationManager(self)
+        
+        # Load translations based on settings
+        self._load_translations()
+        
         # Set application icon if available
         self._set_application_icon()
         
         # Apply modern styling
         self._apply_modern_style()
         
-        # Create main window
+        # Create main window (pass config manager to avoid double initialization)
         self.main_window = MainWindow()
+        self.main_window.config_manager = self.config_manager  # Override with app-level instance
+        
+        # Pass translation manager to main window
+        if hasattr(self.main_window, 'set_translation_manager'):
+            self.main_window.set_translation_manager(self.translation_manager)
+    
+    def _load_translations(self) -> None:
+        """Load translations based on current settings."""
+        ui_settings = self.config_manager.get_settings("ui")
+        interface_language = ui_settings.get("interface_language", "system")
+        
+        # Load translations
+        self.translation_manager.load_language(interface_language)
+    
+    def handle_language_change(self, language_code: str) -> None:
+        """Handle language change request - requires application restart."""
+        from PySide6.QtWidgets import QMessageBox
+        from app.i18n.language_utils import get_language_display_names
+        
+        # Save the new language setting
+        ui_settings = self.config_manager.get_settings("ui")
+        ui_settings["interface_language"] = language_code
+        self.config_manager.update_settings("ui", ui_settings, save=True)
+        
+        # Show restart message
+        lang_names = get_language_display_names()
+        lang_name = lang_names.get(language_code, language_code)
+        reply = QMessageBox.question(
+            self.main_window,
+            self.tr("Restart Required"),
+            self.tr("Language changed to {lang_name}.\n\nThe application needs to restart to apply the new language.\n\nRestart now?").format(lang_name=lang_name),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes:
+            self._restart_application()
+    
+    def _restart_application(self) -> None:
+        """Restart the application."""
+        import subprocess
+        
+        # Save current state
+        if hasattr(self.main_window, 'window_state_manager'):
+            self.main_window.window_state_manager.save_window_state()
+        
+        # Close current application
+        self.closeAllWindows()
+        
+        # Restart with same arguments
+        subprocess.Popen([sys.executable] + sys.argv)
+        self.quit()
+    
+    def get_translation_manager(self) -> TranslationManager:
+        """Get the translation manager instance."""
+        return self.translation_manager
     
     def _set_application_icon(self) -> None:
         """Set the application icon if available."""

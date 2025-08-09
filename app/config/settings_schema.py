@@ -119,6 +119,7 @@ class SettingsSchema:
                 "show_advanced_options": False,
                 "zoom_level": 1.0,
                 "zoom_smooth_transitions": True,
+                "interface_language": "system",  # "system", "en", "de", "bg", "es"
             }
         }
     
@@ -291,6 +292,12 @@ class SettingsSchema:
             if not isinstance(zoom, (int, float)) or not (0.5 <= zoom <= 2.0):
                 result.errors.append("ui.zoom_level must be a number between 0.5 and 2.0")
         
+        # Interface language validation
+        if "interface_language" in ui:
+            valid_languages = ["system", "en", "de", "bg", "es"]
+            if ui["interface_language"] not in valid_languages:
+                result.errors.append(f"ui.interface_language must be one of: {', '.join(valid_languages)}")
+        
         # Validate window geometry
         if "window_geometry" in ui:
             SettingsSchema._validate_window_geometry(ui["window_geometry"], result)
@@ -393,3 +400,14 @@ class SettingsSchema:
             "claude-3-sonnet-20240229",
             "claude-3-haiku-20240307",
         ]
+    
+    @staticmethod
+    def get_interface_languages() -> Dict[str, str]:
+        """Get supported interface languages."""
+        return {
+            "system": "System Default",
+            "en": "English",
+            "de": "Deutsch",
+            "bg": "Български", 
+            "es": "Español"
+        }

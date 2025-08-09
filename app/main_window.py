@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
         self.script_runner = ScriptRunner(self)
         
         # Window properties
-        self.setWindowTitle("SubtitleToolkit")
+        self.setWindowTitle(self.tr("SubtitleToolkit"))
         self.setMinimumSize(1000, 700)
         
         # Try to restore window state, otherwise use defaults
@@ -131,8 +131,8 @@ class MainWindow(QMainWindow):
         
         # Create tab widget for log and results
         tab_widget = QTabWidget()
-        tab_widget.addTab(self.log_panel, "Log")
-        tab_widget.addTab(self.results_panel, "Results")
+        tab_widget.addTab(self.log_panel, self.tr("Log"))
+        tab_widget.addTab(self.results_panel, self.tr("Results"))
         splitter.addWidget(tab_widget)
         
         # Set splitter proportions
@@ -152,45 +152,45 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
         
         # File menu
-        file_menu = menubar.addMenu("&File")
+        file_menu = menubar.addMenu(self.tr("&File"))
         
         # New Project action
-        new_project_action = QAction("&New Project...", self)
+        new_project_action = QAction(self.tr("&New Project..."), self)
         new_project_action.setShortcut(QKeySequence.New)
-        new_project_action.setStatusTip("Select a new project directory")
+        new_project_action.setStatusTip(self.tr("Select a new project directory"))
         new_project_action.triggered.connect(self.project_selector.select_directory)
         file_menu.addAction(new_project_action)
         
         file_menu.addSeparator()
         
         # Settings action
-        settings_action = QAction("&Settings...", self)
+        settings_action = QAction(self.tr("&Settings..."), self)
         settings_action.setShortcut(QKeySequence.Preferences)
-        settings_action.setStatusTip("Open application settings")
+        settings_action.setStatusTip(self.tr("Open application settings"))
         settings_action.triggered.connect(self._show_settings)
         file_menu.addAction(settings_action)
         
         file_menu.addSeparator()
         
         # Exit action
-        exit_action = QAction("E&xit", self)
+        exit_action = QAction(self.tr("E&xit"), self)
         exit_action.setShortcut(QKeySequence.Quit)
-        exit_action.setStatusTip("Exit the application")
+        exit_action.setStatusTip(self.tr("Exit the application"))
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
         # Edit menu
-        edit_menu = menubar.addMenu("&Edit")
+        edit_menu = menubar.addMenu(self.tr("&Edit"))
         
         # Clear Log action
-        clear_log_action = QAction("&Clear Log", self)
+        clear_log_action = QAction(self.tr("&Clear Log"), self)
         clear_log_action.setShortcut(QKeySequence("Ctrl+L"))
-        clear_log_action.setStatusTip("Clear the log panel")
+        clear_log_action.setStatusTip(self.tr("Clear the log panel"))
         clear_log_action.triggered.connect(self.log_panel.clear)
         edit_menu.addAction(clear_log_action)
         
         # View menu
-        view_menu = menubar.addMenu("&View")
+        view_menu = menubar.addMenu(self.tr("&View"))
         
         # Add zoom actions to View menu
         zoom_actions = self.zoom_manager.create_zoom_actions(self)
@@ -201,27 +201,27 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         
         # Tools menu
-        tools_menu = menubar.addMenu("&Tools")
+        tools_menu = menubar.addMenu(self.tr("&Tools"))
         
         # Check Dependencies action
-        check_deps_action = QAction("Check &Dependencies", self)
-        check_deps_action.setStatusTip("Check for required dependencies")
+        check_deps_action = QAction(self.tr("Check &Dependencies"), self)
+        check_deps_action.setStatusTip(self.tr("Check for required dependencies"))
         check_deps_action.triggered.connect(self._check_dependencies)
         tools_menu.addAction(check_deps_action)
         
         # Help menu
-        help_menu = menubar.addMenu("&Help")
+        help_menu = menubar.addMenu(self.tr("&Help"))
         
         # About action
-        about_action = QAction("&About", self)
-        about_action.setStatusTip("About SubtitleToolkit")
+        about_action = QAction(self.tr("&About"), self)
+        about_action.setStatusTip(self.tr("About SubtitleToolkit"))
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
     
     def _create_status_bar(self) -> None:
         """Create the application status bar."""
         self.status_bar = self.statusBar()
-        self.status_bar.showMessage("Ready")
+        self.status_bar.showMessage(self.tr("Ready"))
         
         # Add zoom indicator to status bar
         self.zoom_status_label = QLabel()
@@ -381,8 +381,8 @@ class MainWindow(QMainWindow):
         # Check if project is selected
         if not self.project_selector.selected_directory:
             QMessageBox.warning(
-                self, "No Project Selected",
-                "Please select a project directory before running."
+                self, self.tr("No Project Selected"),
+                self.tr("Please select a project directory before running.")
             )
             return False
         
@@ -390,8 +390,8 @@ class MainWindow(QMainWindow):
         stages = self.stage_toggles.get_enabled_stages()
         if not any(stages.values()):
             QMessageBox.warning(
-                self, "No Stages Enabled",
-                "Please enable at least one processing stage."
+                self, self.tr("No Stages Enabled"),
+                self.tr("Please enable at least one processing stage.")
             )
             return False
         
@@ -399,8 +399,8 @@ class MainWindow(QMainWindow):
         validation_result = self.stage_configurators.validate_configurations(stages)
         if not validation_result.is_valid:
             QMessageBox.warning(
-                self, "Configuration Error",
-                f"Configuration validation failed:\n\n{validation_result.error_message}"
+                self, self.tr("Configuration Error"),
+                self.tr("Configuration validation failed:\n\n{0}").format(validation_result.error_message)
             )
             return False
         
@@ -417,11 +417,11 @@ class MainWindow(QMainWindow):
         self.stage_configurators.setEnabled(not running)
         
         if running:
-            self.status_bar.showMessage("Processing...")
+            self.status_bar.showMessage(self.tr("Processing..."))
             # Clear previous results
             self.results_panel.clear()
         else:
-            self.status_bar.showMessage("Ready")
+            self.status_bar.showMessage(self.tr("Ready"))
     
     def _update_status(self) -> None:
         """Update status bar with current information."""
@@ -434,6 +434,7 @@ class MainWindow(QMainWindow):
         if self._settings_dialog is None:
             self._settings_dialog = SettingsDialog(self.config_manager, self)
             self._settings_dialog.settings_applied.connect(self._on_settings_applied)
+            self._settings_dialog.language_change_requested.connect(self._on_language_change_requested)
         
         self._settings_dialog.show()
         self._settings_dialog.raise_()
@@ -444,6 +445,7 @@ class MainWindow(QMainWindow):
         if self._settings_dialog is None:
             self._settings_dialog = SettingsDialog(self.config_manager, self)
             self._settings_dialog.settings_applied.connect(self._on_settings_applied)
+            self._settings_dialog.language_change_requested.connect(self._on_language_change_requested)
         
         # Show settings dialog on Tools tab and refresh detection
         self._settings_dialog.show_tab("tools")
@@ -465,6 +467,31 @@ class MainWindow(QMainWindow):
         if new_zoom != self.zoom_manager.current_zoom:
             self.zoom_manager.set_zoom(new_zoom)
     
+    def _on_language_change_requested(self, language_code: str) -> None:
+        """Handle language change request from settings dialog."""
+        # Get the main application instance and delegate to it
+        app = QApplication.instance()
+        if hasattr(app, 'handle_language_change'):
+            app.handle_language_change(language_code)
+        else:
+            # Fallback: direct restart notification
+            from PySide6.QtWidgets import QMessageBox
+            from app.i18n.language_utils import get_language_display_names
+            
+            lang_names = get_language_display_names()
+            lang_name = lang_names.get(language_code, language_code)
+            reply = QMessageBox.question(
+                self,
+                self.tr("Restart Required"),
+                self.tr("Language changed to {0}.\n\nThe application needs to restart to apply the new language.\n\nPlease restart the application manually.").format(lang_name),
+                QMessageBox.Ok
+            )
+            
+            # Save the setting anyway
+            ui_settings = self.config_manager.get_settings("ui")
+            ui_settings["interface_language"] = language_code
+            self.config_manager.update_settings("ui", ui_settings, save=True)
+    
     def _update_ui_from_settings(self) -> None:
         """Update UI elements based on current settings."""
         # This method can be used to update UI elements when settings change
@@ -478,23 +505,34 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         """Show about dialog."""
         QMessageBox.about(
-            self, "About SubtitleToolkit",
-            "SubtitleToolkit v1.0.0\n\n"
-            "A comprehensive desktop application for subtitle processing.\n\n"
-            "Features:\n"
-            "• Extract subtitles from MKV files\n"
-            "• Translate SRT files using AI\n"
-            "• Intelligently sync subtitle filenames\n\n"
-            "Built with PySide6 and Qt6"
+            self, self.tr("About SubtitleToolkit"),
+            self.tr("SubtitleToolkit v1.0.0\n\n"
+                   "A comprehensive desktop application for subtitle processing.\n\n"
+                   "Features:\n"
+                   "• Extract subtitles from MKV files\n"
+                   "• Translate SRT files using AI\n"
+                   "• Intelligently sync subtitle filenames\n\n"
+                   "Built with PySide6 and Qt6")
         )
+    
+    def retranslateUi(self) -> None:
+        """Retranslate UI elements when language changes."""
+        # This method would be called after translation files are loaded
+        # to update all UI text. However, since we restart the app for language
+        # changes, this is mainly for reference and future use.
+        self.setWindowTitle(self.tr("SubtitleToolkit"))
+        
+        # The UI components will automatically get new translations
+        # when they are recreated on app restart
+        pass
     
     def closeEvent(self, event) -> None:
         """Handle application close event."""
         # Check if processing is running
         if self.script_runner.is_running:
             reply = QMessageBox.question(
-                self, "Confirm Exit",
-                "Processing is currently running. Are you sure you want to exit?",
+                self, self.tr("Confirm Exit"),
+                self.tr("Processing is currently running. Are you sure you want to exit?"),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )

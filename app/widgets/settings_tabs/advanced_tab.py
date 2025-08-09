@@ -215,7 +215,7 @@ class LoggingWidget(QWidget):
     
     def _connect_signals(self):
         """Connect widget signals."""
-        self.log_level_combo.currentDataChanged.connect(self.settings_changed.emit)
+        self.log_level_combo.currentIndexChanged.connect(self.settings_changed.emit)
     
     def _update_log_level_description(self):
         """Update log level description."""

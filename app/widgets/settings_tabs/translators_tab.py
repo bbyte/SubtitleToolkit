@@ -499,7 +499,7 @@ class TranslatorsTab(QWidget):
     def _connect_signals(self):
         """Connect widget signals."""
         # Default provider combo
-        self.default_provider_combo.currentDataChanged.connect(
+        self.default_provider_combo.currentIndexChanged.connect(
             lambda: self.settings_changed.emit("translators")
         )
         

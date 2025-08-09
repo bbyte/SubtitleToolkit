@@ -14,7 +14,7 @@ from PySide6.QtGui import QFont
 
 from app.config import ConfigManager, ValidationResult
 from app.widgets.settings_tabs import (
-    ToolsTab, TranslatorsTab, LanguagesTab, AdvancedTab
+    ToolsTab, TranslatorsTab, LanguagesTab, AdvancedTab, InterfaceTab
 )
 
 
@@ -30,6 +30,7 @@ class SettingsDialog(QDialog):
     """
     
     settings_applied = Signal()  # Emitted when settings are successfully applied
+    language_change_requested = Signal(str)  # Emitted when interface language should change
     
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(parent)
@@ -97,6 +98,10 @@ class SettingsDialog(QDialog):
     
     def _create_tabs(self):
         """Create all settings tabs."""
+        # Interface tab - UI language and appearance
+        self._tabs['interface'] = InterfaceTab(self.config_manager, self)
+        self.tab_widget.addTab(self._tabs['interface'], "Interface")
+        
         # Tools tab - dependency detection and tool paths
         self._tabs['tools'] = ToolsTab(self.config_manager, self)
         self.tab_widget.addTab(self._tabs['tools'], "Tools")
@@ -152,6 +157,12 @@ class SettingsDialog(QDialog):
         for tab in self._tabs.values():
             if hasattr(tab, 'settings_changed'):
                 tab.settings_changed.connect(self._on_tab_settings_changed)
+        
+        # Connect interface tab language change signal
+        if 'interface' in self._tabs:
+            interface_tab = self._tabs['interface']
+            if hasattr(interface_tab, 'language_change_requested'):
+                interface_tab.language_change_requested.connect(self.language_change_requested)
     
     def _load_current_settings(self):
         """Load current settings into all tabs."""
