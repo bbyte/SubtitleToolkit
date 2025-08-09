@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
-from ..config import ConfigManager, ValidationResult
-from ..widgets.settings_tabs import (
+from app.config import ConfigManager, ValidationResult
+from app.widgets.settings_tabs import (
     ToolsTab, TranslatorsTab, LanguagesTab, AdvancedTab
 )
 

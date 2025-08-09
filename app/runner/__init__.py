@@ -7,7 +7,7 @@ with JSONL event streaming and process management.
 
 from .script_runner import ScriptRunner
 from .config_models import ExtractConfig, TranslateConfig, SyncConfig
-from .events import Event, EventType, ScriptRunnerSignals
+from .events import Event, EventType, Stage, ScriptRunnerSignals
 from .jsonl_parser import JSONLParser
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     'SyncConfig',
     'Event',
     'EventType',
+    'Stage',
     'ScriptRunnerSignals',
     'JSONLParser',
 ]

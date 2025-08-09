@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer
 from PySide6.QtGui import QFont, QPixmap, QIcon
 
-from ...config import ConfigManager, ValidationResult, TranslationProvider, SettingsSchema
+from app.config import ConfigManager, ValidationResult, TranslationProvider, SettingsSchema
 
 
 class ConnectionTestWorker(QObject):

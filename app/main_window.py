@@ -12,17 +12,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 
-from widgets.project_selector import ProjectSelector
-from widgets.stage_toggles import StageToggles
-from widgets.stage_configurators import StageConfigurators
-from widgets.progress_section import ProgressSection
-from widgets.log_panel import LogPanel
-from widgets.results_panel import ResultsPanel
-from widgets.action_buttons import ActionButtons
+from app.widgets.project_selector import ProjectSelector
+from app.widgets.stage_toggles import StageToggles
+from app.widgets.stage_configurators import StageConfigurators
+from app.widgets.progress_section import ProgressSection
+from app.widgets.log_panel import LogPanel
+from app.widgets.results_panel import ResultsPanel
+from app.widgets.action_buttons import ActionButtons
 
-from dialogs.settings_dialog import SettingsDialog
-from config import ConfigManager
-from runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
+from app.dialogs.settings_dialog import SettingsDialog
+from app.config import ConfigManager
+from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
 
 
 class MainWindow(QMainWindow):

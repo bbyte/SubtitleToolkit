@@ -6,6 +6,6 @@ and persistence across application sessions.
 """
 
 from .config_manager import ConfigManager, ToolStatus
-from .settings_schema import SettingsSchema, ValidationResult
+from .settings_schema import SettingsSchema, ValidationResult, TranslationProvider, LogLevel
 
-__all__ = ['ConfigManager', 'ToolStatus', 'SettingsSchema', 'ValidationResult']
+__all__ = ['ConfigManager', 'ToolStatus', 'SettingsSchema', 'ValidationResult', 'TranslationProvider', 'LogLevel']
