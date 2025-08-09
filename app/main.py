@@ -19,7 +19,7 @@ from PySide6.QtGui import QIcon, QPalette, QColor
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from main_window import MainWindow
+from main_window import SubtitleToolkitMainWindow
 
 
 class SubtitleToolkitApp(QApplication):
@@ -42,7 +42,7 @@ class SubtitleToolkitApp(QApplication):
         self._apply_modern_style()
         
         # Create main window
-        self.main_window = MainWindow()
+        self.main_window = SubtitleToolkitMainWindow()
     
     def _set_application_icon(self) -> None:
         """Set the application icon if available."""
