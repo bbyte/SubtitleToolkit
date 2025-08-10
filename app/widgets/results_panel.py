@@ -78,13 +78,13 @@ class ResultsPanel(QFrame):
         controls_layout = QHBoxLayout()
         
         # Filter controls
-        filter_label = QLabel("Show:")
+        filter_label = QLabel(self.tr("Show:"))
         controls_layout.addWidget(filter_label)
         
         self.filter_combo = QComboBox()
         self.filter_combo.addItems([
-            "All Results", "Extract Results", "Translate Results", 
-            "Sync Results", "Successful Only", "Errors Only"
+            self.tr("All Results"), self.tr("Extract Results"), self.tr("Translate Results"), 
+            self.tr("Sync Results"), self.tr("Successful Only"), self.tr("Errors Only")
         ])
         controls_layout.addWidget(self.filter_combo)
         
@@ -110,15 +110,15 @@ class ResultsPanel(QFrame):
         
         # Main results table tab
         self._create_results_table()
-        self.tab_widget.addTab(self.table_widget, "Results")
+        self.tab_widget.addTab(self.table_widget, self.tr("Results"))
         
         # Rename preview tab (for sync operations)
         self._create_rename_preview()
-        self.tab_widget.addTab(self.rename_widget, "Rename Preview")
+        self.tab_widget.addTab(self.rename_widget, self.tr("Rename Preview"))
         
         # Summary tab
         self._create_summary_view()
-        self.tab_widget.addTab(self.summary_widget, "Summary")
+        self.tab_widget.addTab(self.summary_widget, self.tr("Summary"))
         
         layout.addWidget(self.tab_widget)
     

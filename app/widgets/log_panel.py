@@ -93,12 +93,12 @@ class LogPanel(QFrame):
         controls_layout.addWidget(self.auto_scroll_checkbox)
         
         # Clear button
-        self.clear_button = QPushButton("Clear")
+        self.clear_button = QPushButton(self.tr("Clear"))
         self.clear_button.clicked.connect(self.clear)
         controls_layout.addWidget(self.clear_button)
         
         # Export button
-        self.export_button = QPushButton("Export...")
+        self.export_button = QPushButton(self.tr("Export..."))
         self.export_button.clicked.connect(self._export_logs)
         controls_layout.addWidget(self.export_button)
         

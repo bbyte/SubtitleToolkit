@@ -78,7 +78,7 @@ class SettingsDialog(QDialog):
         header_layout.setContentsMargins(15, 15, 15, 15)
         
         # Title
-        title = QLabel("Application Settings")
+        title = QLabel(self.tr("Application Settings"))
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)
@@ -86,10 +86,10 @@ class SettingsDialog(QDialog):
         header_layout.addWidget(title)
         
         # Description
-        description = QLabel(
+        description = QLabel(self.tr(
             "Configure SubtitleToolkit to work with your system and preferences. "
             "Changes are applied immediately and saved automatically."
-        )
+        ))
         description.setWordWrap(True)
         description.setStyleSheet("color: #666;")
         header_layout.addWidget(description)
@@ -100,23 +100,23 @@ class SettingsDialog(QDialog):
         """Create all settings tabs."""
         # Interface tab - UI language and appearance
         self._tabs['interface'] = InterfaceTab(self.config_manager, self)
-        self.tab_widget.addTab(self._tabs['interface'], "Interface")
+        self.tab_widget.addTab(self._tabs['interface'], self.tr("Interface"))
         
         # Tools tab - dependency detection and tool paths
         self._tabs['tools'] = ToolsTab(self.config_manager, self)
-        self.tab_widget.addTab(self._tabs['tools'], "Tools")
+        self.tab_widget.addTab(self._tabs['tools'], self.tr("Tools"))
         
         # Translators tab - API keys and model settings
         self._tabs['translators'] = TranslatorsTab(self.config_manager, self)
-        self.tab_widget.addTab(self._tabs['translators'], "Translators")
+        self.tab_widget.addTab(self._tabs['translators'], self.tr("Translators"))
         
         # Languages tab - default language settings
         self._tabs['languages'] = LanguagesTab(self.config_manager, self)
-        self.tab_widget.addTab(self._tabs['languages'], "Languages")
+        self.tab_widget.addTab(self._tabs['languages'], self.tr("Languages"))
         
         # Advanced tab - system and behavior settings
         self._tabs['advanced'] = AdvancedTab(self.config_manager, self)
-        self.tab_widget.addTab(self._tabs['advanced'], "Advanced")
+        self.tab_widget.addTab(self._tabs['advanced'], self.tr("Advanced"))
     
     def _create_button_box(self) -> QDialogButtonBox:
         """Create the dialog button box."""

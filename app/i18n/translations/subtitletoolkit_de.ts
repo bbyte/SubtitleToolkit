@@ -150,4 +150,211 @@ Jetzt neu starten?</translation>
         <translation>Anwenden</translation>
     </message>
 </context>
+<context>
+    <name>ActionButtons</name>
+    <message>
+        <source>Run</source>
+        <translation>Ausführen</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Abbrechen</translation>
+    </message>
+    <message>
+        <source>Open Output Folder</source>
+        <translation>Ausgabeordner öffnen</translation>
+    </message>
+    <message>
+        <source>Running...</source>
+        <translation>Läuft...</translation>
+    </message>
+    <message>
+        <source>Ready to process</source>
+        <translation>Bereit zur Verarbeitung</translation>
+    </message>
+</context>
+<context>
+    <name>StageToggles</name>
+    <message>
+        <source>Extract Subtitles</source>
+        <translation>Untertitel extrahieren</translation>
+    </message>
+    <message>
+        <source>Translate Subtitles</source>
+        <translation>Untertitel übersetzen</translation>
+    </message>
+    <message>
+        <source>Sync Subtitle Names</source>
+        <translation>Untertitel-Namen synchronisieren</translation>
+    </message>
+</context>
+<context>
+    <name>ProjectSelector</name>
+    <message>
+        <source>Select Project Folder</source>
+        <translation>Projektordner auswählen</translation>
+    </message>
+</context>
+<context>
+    <name>StageConfigurators</name>
+    <message>
+        <source>Stage Configuration</source>
+        <translation>Etappen-Konfiguration</translation>
+    </message>
+    <message>
+        <source>Extract Configuration</source>
+        <translation>Extraktions-Konfiguration</translation>
+    </message>
+    <message>
+        <source>Translate Configuration</source>
+        <translation>Übersetzungs-Konfiguration</translation>
+    </message>
+    <message>
+        <source>Sync Configuration</source>
+        <translation>Synchronisations-Konfiguration</translation>
+    </message>
+    <message>
+        <source>Available placeholders: {video_name}, {language}, {original_name}</source>
+        <translation>Verfügbare Platzhalter: {video_name}, {language}, {original_name}</translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation>Anzeigen</translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation>Verbergen</translation>
+    </message>
+</context>
+<context>
+    <name>ProgressSection</name>
+    <message>
+        <source>Processing Progress</source>
+        <translation>Verarbeitungsfortschritt</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>Bereit</translation>
+    </message>
+    <message>
+        <source>Select a project and stages to begin processing</source>
+        <translation>Wählen Sie ein Projekt und Etappen zum Starten</translation>
+    </message>
+    <message>
+        <source>Initializing...</source>
+        <translation>Initialisierung...</translation>
+    </message>
+    <message>
+        <source>Starting processing pipeline...</source>
+        <translation>Pipeline wird gestartet...</translation>
+    </message>
+    <message>
+        <source>Completed</source>
+        <translation>Abgeschlossen</translation>
+    </message>
+    <message>
+        <source>Processing completed successfully</source>
+        <translation>Verarbeitung erfolgreich abgeschlossen</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>Fehlgeschlagen</translation>
+    </message>
+    <message>
+        <source>Processing failed</source>
+        <translation>Verarbeitung fehlgeschlagen</translation>
+    </message>
+    <message>
+        <source>{0} Stage</source>
+        <translation>{0}-Etappe</translation>
+    </message>
+</context>
+<context>
+    <name>StageToggles</name>
+    <message>
+        <source>Processing Stages</source>
+        <translation>Verarbeitungsetappen</translation>
+    </message>
+    <message>
+        <source>Select which stages to run in the processing pipeline:</source>
+        <translation>Wählen Sie aus, welche Etappen ausgeführt werden sollen:</translation>
+    </message>
+    <message>
+        <source>Pipeline Flow:</source>
+        <translation>Pipeline-Ablauf:</translation>
+    </message>
+    <message>
+        <source>Select stages above to see pipeline flow</source>
+        <translation>Wählen Sie oben Etappen aus, um den Ablauf zu sehen</translation>
+    </message>
+</context>
+<context>
+    <name>LogPanel</name>
+    <message>
+        <source>Clear</source>
+        <translation>Leeren</translation>
+    </message>
+    <message>
+        <source>Export...</source>
+        <translation>Exportieren...</translation>
+    </message>
+</context>
+<context>
+    <name>ResultsPanel</name>
+    <message>
+        <source>Results</source>
+        <translation>Ergebnisse</translation>
+    </message>
+    <message>
+        <source>Rename Preview</source>
+        <translation>Umbenennung-Vorschau</translation>
+    </message>
+    <message>
+        <source>Summary</source>
+        <translation>Zusammenfassung</translation>
+    </message>
+    <message>
+        <source>Show:</source>
+        <translation>Anzeigen:</translation>
+    </message>
+    <message>
+        <source>All Results</source>
+        <translation>Alle Ergebnisse</translation>
+    </message>
+    <message>
+        <source>Extract Results</source>
+        <translation>Extraktions-Ergebnisse</translation>
+    </message>
+    <message>
+        <source>Translate Results</source>
+        <translation>Übersetzungs-Ergebnisse</translation>
+    </message>
+    <message>
+        <source>Sync Results</source>
+        <translation>Synchronisations-Ergebnisse</translation>
+    </message>
+    <message>
+        <source>Successful Only</source>
+        <translation>Nur erfolgreiche</translation>
+    </message>
+    <message>
+        <source>Errors Only</source>
+        <translation>Nur Fehler</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialog</name>
+    <message>
+        <source>Interface</source>
+        <translation>Oberfläche</translation>
+    </message>
+    <message>
+        <source>Application Settings</source>
+        <translation>Anwendungseinstellungen</translation>
+    </message>
+    <message>
+        <source>Configure SubtitleToolkit to work with your system and preferences. Changes are applied immediately and saved automatically.</source>
+        <translation>Konfigurieren Sie SubtitleToolkit für Ihr System und Ihre Präferenzen. Änderungen werden sofort angewandt und automatisch gespeichert.</translation>
+    </message>
+</context>
 </TS>

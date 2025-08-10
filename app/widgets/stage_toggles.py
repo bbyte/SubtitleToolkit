@@ -48,7 +48,7 @@ class StageToggles(QFrame):
         layout.setSpacing(10)
         
         # Title
-        title_label = QLabel("Processing Stages")
+        title_label = QLabel(self.tr("Processing Stages"))
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(12)
@@ -56,7 +56,7 @@ class StageToggles(QFrame):
         layout.addWidget(title_label)
         
         # Description
-        desc_label = QLabel("Select which stages to run in the processing pipeline:")
+        desc_label = QLabel(self.tr("Select which stages to run in the processing pipeline:"))
         desc_label.setStyleSheet("color: #bbb;")
         layout.addWidget(desc_label)
         
@@ -110,12 +110,12 @@ class StageToggles(QFrame):
         flow_layout.setContentsMargins(15, 10, 15, 10)
         
         # Pipeline flow label
-        flow_label = QLabel("Pipeline Flow:")
+        flow_label = QLabel(self.tr("Pipeline Flow:"))
         flow_label.setStyleSheet("font-weight: bold; color: #ddd;")
         flow_layout.addWidget(flow_label)
         
         # Flow visualization
-        self.flow_display = QLabel("Select stages above to see pipeline flow")
+        self.flow_display = QLabel(self.tr("Select stages above to see pipeline flow"))
         self.flow_display.setStyleSheet("color: #bbb; font-family: monospace;")
         flow_layout.addWidget(self.flow_display)
         
@@ -143,7 +143,7 @@ class StageToggles(QFrame):
         enabled_stages = [stage for stage, enabled in self._stages.items() if enabled]
         
         if not enabled_stages:
-            self.flow_display.setText("Select stages above to see pipeline flow")
+            self.flow_display.setText(self.tr("Select stages above to see pipeline flow"))
             return
         
         # Create flow representation

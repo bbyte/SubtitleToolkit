@@ -150,4 +150,211 @@ Restart now?</source>
         <translation>Приложи</translation>
     </message>
 </context>
+<context>
+    <name>ActionButtons</name>
+    <message>
+        <source>Run</source>
+        <translation>Стартирай</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Отмени</translation>
+    </message>
+    <message>
+        <source>Open Output Folder</source>
+        <translation>Отвори папката с резултатите</translation>
+    </message>
+    <message>
+        <source>Running...</source>
+        <translation>Стартиране...</translation>
+    </message>
+    <message>
+        <source>Ready to process</source>
+        <translation>Готов за обработка</translation>
+    </message>
+</context>
+<context>
+    <name>StageToggles</name>
+    <message>
+        <source>Extract Subtitles</source>
+        <translation>Извлечи субтитри</translation>
+    </message>
+    <message>
+        <source>Translate Subtitles</source>
+        <translation>Преведи субтитри</translation>
+    </message>
+    <message>
+        <source>Sync Subtitle Names</source>
+        <translation>Синхронизирай имената на субтитрите</translation>
+    </message>
+</context>
+<context>
+    <name>ProjectSelector</name>
+    <message>
+        <source>Select Project Folder</source>
+        <translation>Избери папка на проекта</translation>
+    </message>
+</context>
+<context>
+    <name>StageConfigurators</name>
+    <message>
+        <source>Stage Configuration</source>
+        <translation>Конфигуриране на етапи</translation>
+    </message>
+    <message>
+        <source>Extract Configuration</source>
+        <translation>Конфигуриране на извличането</translation>
+    </message>
+    <message>
+        <source>Translate Configuration</source>
+        <translation>Конфигуриране на превода</translation>
+    </message>
+    <message>
+        <source>Sync Configuration</source>
+        <translation>Конфигуриране на синхронизирането</translation>
+    </message>
+    <message>
+        <source>Available placeholders: {video_name}, {language}, {original_name}</source>
+        <translation>Достъпни заместители: {video_name}, {language}, {original_name}</translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation>Покажи</translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation>Скрий</translation>
+    </message>
+</context>
+<context>
+    <name>ProgressSection</name>
+    <message>
+        <source>Processing Progress</source>
+        <translation>Прогрес на обработката</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>Готов</translation>
+    </message>
+    <message>
+        <source>Select a project and stages to begin processing</source>
+        <translation>Изберете проект и етапи, за да започнете обработката</translation>
+    </message>
+    <message>
+        <source>Initializing...</source>
+        <translation>Инициализиране...</translation>
+    </message>
+    <message>
+        <source>Starting processing pipeline...</source>
+        <translation>Стартиране на обработката...</translation>
+    </message>
+    <message>
+        <source>Completed</source>
+        <translation>Завършено</translation>
+    </message>
+    <message>
+        <source>Processing completed successfully</source>
+        <translation>Обработката завърши успешно</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>Неуспешно</translation>
+    </message>
+    <message>
+        <source>Processing failed</source>
+        <translation>Обработката се провали</translation>
+    </message>
+    <message>
+        <source>{0} Stage</source>
+        <translation>Етап {0}</translation>
+    </message>
+</context>
+<context>
+    <name>StageToggles</name>
+    <message>
+        <source>Processing Stages</source>
+        <translation>Етапи на обработката</translation>
+    </message>
+    <message>
+        <source>Select which stages to run in the processing pipeline:</source>
+        <translation>Изберете кои етапи да бъдат изпълнени:</translation>
+    </message>
+    <message>
+        <source>Pipeline Flow:</source>
+        <translation>Поток на обработката:</translation>
+    </message>
+    <message>
+        <source>Select stages above to see pipeline flow</source>
+        <translation>Изберете етапи по-горе, за да видите потока</translation>
+    </message>
+</context>
+<context>
+    <name>LogPanel</name>
+    <message>
+        <source>Clear</source>
+        <translation>Изчисти</translation>
+    </message>
+    <message>
+        <source>Export...</source>
+        <translation>Експортирай...</translation>
+    </message>
+</context>
+<context>
+    <name>ResultsPanel</name>
+    <message>
+        <source>Results</source>
+        <translation>Резултати</translation>
+    </message>
+    <message>
+        <source>Rename Preview</source>
+        <translation>Преглед на преименуването</translation>
+    </message>
+    <message>
+        <source>Summary</source>
+        <translation>Обобщение</translation>
+    </message>
+    <message>
+        <source>Show:</source>
+        <translation>Покажи:</translation>
+    </message>
+    <message>
+        <source>All Results</source>
+        <translation>Всички резултати</translation>
+    </message>
+    <message>
+        <source>Extract Results</source>
+        <translation>Резултати от извличането</translation>
+    </message>
+    <message>
+        <source>Translate Results</source>
+        <translation>Резултати от превода</translation>
+    </message>
+    <message>
+        <source>Sync Results</source>
+        <translation>Резултати от синхронизирането</translation>
+    </message>
+    <message>
+        <source>Successful Only</source>
+        <translation>Само успешните</translation>
+    </message>
+    <message>
+        <source>Errors Only</source>
+        <translation>Само грешките</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialog</name>
+    <message>
+        <source>Interface</source>
+        <translation>Интерфейс</translation>
+    </message>
+    <message>
+        <source>Application Settings</source>
+        <translation>Настройки на приложението</translation>
+    </message>
+    <message>
+        <source>Configure SubtitleToolkit to work with your system and preferences. Changes are applied immediately and saved automatically.</source>
+        <translation>Конфигурирайте SubtitleToolkit да работи с вашата система и предпочитания. Промените се прилагат незабавно и се записват автоматично.</translation>
+    </message>
+</context>
 </TS>

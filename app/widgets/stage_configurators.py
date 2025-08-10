@@ -238,7 +238,7 @@ class TranslateConfigWidget(QFrame):
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.Password)
         self.api_key_edit.setPlaceholderText("Enter API key or set in environment")
-        self.show_key_button = QPushButton("Show")
+        self.show_key_button = QPushButton(self.tr("Show"))
         self.show_key_button.setMaximumWidth(60)
         self.show_key_button.setCheckable(True)
         api_key_layout.addWidget(self.api_key_edit)
@@ -302,10 +302,10 @@ class TranslateConfigWidget(QFrame):
         """Toggle API key visibility."""
         if show:
             self.api_key_edit.setEchoMode(QLineEdit.Normal)
-            self.show_key_button.setText("Hide")
+            self.show_key_button.setText(self.tr("Hide"))
         else:
             self.api_key_edit.setEchoMode(QLineEdit.Password)
-            self.show_key_button.setText("Show")
+            self.show_key_button.setText(self.tr("Show"))
     
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
@@ -358,7 +358,7 @@ class SyncConfigWidget(QFrame):
         layout.addRow("Naming Template:", self.template_edit)
         
         # Template help
-        template_help = QLabel("Available placeholders: {video_name}, {language}, {original_name}")
+        template_help = QLabel(self.tr("Available placeholders: {video_name}, {language}, {original_name}"))
         template_help.setStyleSheet("color: #bbb; font-size: 10px;")
         template_help.setWordWrap(True)
         layout.addRow("", template_help)
@@ -456,7 +456,7 @@ class StageConfigurators(QFrame):
         layout.setSpacing(10)
         
         # Title
-        title_label = QLabel("Stage Configuration")
+        title_label = QLabel(self.tr("Stage Configuration"))
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(12)
@@ -464,7 +464,7 @@ class StageConfigurators(QFrame):
         layout.addWidget(title_label)
         
         # Extract configuration
-        self.extract_group = QCollapsibleGroupBox("Extract Configuration")
+        self.extract_group = QCollapsibleGroupBox(self.tr("Extract Configuration"))
         self.extract_config = ExtractConfigWidget()
         extract_layout = QVBoxLayout(self.extract_group)
         extract_layout.addWidget(self.extract_config)
@@ -472,7 +472,7 @@ class StageConfigurators(QFrame):
         layout.addWidget(self.extract_group)
         
         # Translate configuration
-        self.translate_group = QCollapsibleGroupBox("Translate Configuration")
+        self.translate_group = QCollapsibleGroupBox(self.tr("Translate Configuration"))
         self.translate_config = TranslateConfigWidget()
         translate_layout = QVBoxLayout(self.translate_group)
         translate_layout.addWidget(self.translate_config)
@@ -480,7 +480,7 @@ class StageConfigurators(QFrame):
         layout.addWidget(self.translate_group)
         
         # Sync configuration
-        self.sync_group = QCollapsibleGroupBox("Sync Configuration")
+        self.sync_group = QCollapsibleGroupBox(self.tr("Sync Configuration"))
         self.sync_config = SyncConfigWidget()
         sync_layout = QVBoxLayout(self.sync_group)
         sync_layout.addWidget(self.sync_config)

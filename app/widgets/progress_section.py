@@ -49,7 +49,7 @@ class ProgressSection(QFrame):
         layout.setSpacing(10)
         
         # Title
-        title_label = QLabel("Processing Progress")
+        title_label = QLabel(self.tr("Processing Progress"))
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(12)
@@ -82,7 +82,7 @@ class ProgressSection(QFrame):
         status_layout = QHBoxLayout()
         
         # Current stage indicator
-        self.stage_label = QLabel("Ready")
+        self.stage_label = QLabel(self.tr("Ready"))
         self.stage_label.setStyleSheet("font-weight: bold; color: #2a82da;")
         status_layout.addWidget(self.stage_label)
         
@@ -97,7 +97,7 @@ class ProgressSection(QFrame):
         layout.addLayout(status_layout)
         
         # Detailed status message
-        self.status_label = QLabel("Select a project and stages to begin processing")
+        self.status_label = QLabel(self.tr("Select a project and stages to begin processing"))
         self.status_label.setStyleSheet("color: #bbb; font-size: 11px;")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
@@ -126,8 +126,8 @@ class ProgressSection(QFrame):
         
         # Update UI
         self.progress_bar.setValue(0)
-        self.stage_label.setText("Initializing...")
-        self.status_label.setText("Starting processing pipeline...")
+        self.stage_label.setText(self.tr("Initializing..."))
+        self.status_label.setText(self.tr("Starting processing pipeline..."))
         
         # Start animation
         self._animation_timer.start(500)  # Update every 500ms
@@ -142,15 +142,15 @@ class ProgressSection(QFrame):
         self._animation_timer.stop()
         
         if success:
-            self.stage_label.setText("Completed")
+            self.stage_label.setText(self.tr("Completed"))
             self.stage_label.setStyleSheet("font-weight: bold; color: #66bb6a;")
             self.progress_bar.setValue(100)
-            self.status_label.setText(message or "Processing completed successfully")
+            self.status_label.setText(message or self.tr("Processing completed successfully"))
             self.setStyleSheet("border: 2px solid #66bb6a;")
         else:
-            self.stage_label.setText("Failed")
+            self.stage_label.setText(self.tr("Failed"))
             self.stage_label.setStyleSheet("font-weight: bold; color: #ff6b6b;")
-            self.status_label.setText(message or "Processing failed")
+            self.status_label.setText(message or self.tr("Processing failed"))
             self.setStyleSheet("border: 2px solid #ff6b6b;")
         
         self.processing_label.setText("")
@@ -163,9 +163,9 @@ class ProgressSection(QFrame):
         
         # Reset UI
         self.progress_bar.setValue(0)
-        self.stage_label.setText("Ready")
+        self.stage_label.setText(self.tr("Ready"))
         self.stage_label.setStyleSheet("font-weight: bold; color: #2a82da;")
-        self.status_label.setText("Select a project and stages to begin processing")
+        self.status_label.setText(self.tr("Select a project and stages to begin processing"))
         self.processing_label.setText("")
         self.setStyleSheet("")
     
@@ -181,7 +181,7 @@ class ProgressSection(QFrame):
         # Update stage if provided
         if stage:
             self._current_stage = stage
-            self.stage_label.setText(f"{stage.title()} Stage")
+            self.stage_label.setText(self.tr("{0} Stage").format(stage.title()))
         
         # Update status message if provided
         if message:
@@ -198,7 +198,7 @@ class ProgressSection(QFrame):
             return
         
         self._current_stage = stage
-        self.stage_label.setText(f"{stage.title()} Stage")
+        self.stage_label.setText(self.tr("{0} Stage").format(stage.title()))
         
         if message:
             self.status_label.setText(message)
