@@ -92,7 +92,7 @@ class SettingsSchema:
                 "default_source": "auto",
                 "default_target": "en",
                 "recent_source_languages": ["auto", "es", "fr", "de"],
-                "recent_target_languages": ["en", "es", "fr", "de"],
+                "recent_target_languages": ["en", "es", "fr", "de", "bg"],
                 "language_detection_confidence": 0.8,
             },
             "advanced": {

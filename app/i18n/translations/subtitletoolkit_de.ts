@@ -102,6 +102,14 @@ Jetzt neu starten?</translation>
         <source>Ready to process</source>
         <translation>Bereit zur Verarbeitung</translation>
     </message>
+    <message>
+        <source>No File Selected</source>
+        <translation>Keine Datei ausgewählt</translation>
+    </message>
+    <message>
+        <source>Please select a file before running.</source>
+        <translation>Bitte wählen Sie eine Datei aus, bevor Sie die Ausführung starten.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>
@@ -186,6 +194,50 @@ Jetzt neu starten?</translation>
     <message>
         <source>Sync Subtitle Names</source>
         <translation>Untertitel-Namen synchronisieren</translation>
+    </message>
+    <message>
+        <source>Extract Subtitles</source>
+        <translation>Untertitel extrahieren</translation>
+    </message>
+    <message>
+        <source>Extract subtitle tracks from MKV video files
+Requires: ffmpeg/ffprobe
+Output: .srt files</source>
+        <translation>Untertitel-Spuren aus MKV-Videodateien extrahieren
+Benötigt: ffmpeg/ffprobe
+Ausgabe: .srt-Dateien</translation>
+    </message>
+    <message>
+        <source>Translate Subtitles</source>
+        <translation>Untertitel übersetzen</translation>
+    </message>
+    <message>
+        <source>Translate SRT subtitle files using AI services
+Requires: API keys (OpenAI/Claude/LM Studio)
+Output: Translated .srt files</source>
+        <translation>SRT-Untertiteldateien mit KI-Diensten übersetzen
+Benötigt: API-Schlüssel (OpenAI/Claude/LM Studio)
+Ausgabe: Übersetzte .srt-Dateien</translation>
+    </message>
+    <message>
+        <source>Sync Subtitle Names</source>
+        <translation>Untertitel-Namen synchronisieren</translation>
+    </message>
+    <message>
+        <source>Intelligently rename SRT files to match video files
+Requires: AI service for name matching
+Output: Renamed subtitle files</source>
+        <translation>SRT-Dateien intelligent umbenennen, um Videodateien zu entsprechen
+Benötigt: KI-Dienst für Namensabgleich
+Ausgabe: Umbenannte Untertiteldateien</translation>
+    </message>
+    <message>
+        <source>Sync stage is not available in single file mode.
+Filename synchronization only applies when processing
+multiple files in a directory.</source>
+        <translation>Die Synchronisationsstufe ist im Einzeldateimodus nicht verfügbar.
+Die Dateinamen-Synchronisation gilt nur bei der Verarbeitung
+mehrerer Dateien in einem Verzeichnis.</translation>
     </message>
 </context>
 <context>

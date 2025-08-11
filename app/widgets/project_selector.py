@@ -371,11 +371,6 @@ class ProjectSelector(QFrame):
         else:
             self.status_label.setStyleSheet("")
     
-    @property
-    def selected_directory(self) -> str:
-        """Get the currently selected directory."""
-        return self._selected_directory
-    
-    def is_directory_selected(self) -> bool:
-        """Check if a valid directory is selected."""
-        return bool(self._selected_directory and Path(self._selected_directory).exists())
+    def is_selection_valid(self) -> bool:
+        """Check if the current selection is valid."""
+        return bool(self._selected_path and Path(self._selected_path).exists())

@@ -14,7 +14,7 @@ from pathlib import Path
 class ExtractConfig:
     """Configuration for MKV subtitle extraction."""
     
-    # Input configuration
+    # Input configuration (can be directory or single file path)
     input_directory: str
     language_code: str = "eng"  # Default to English
     output_directory: Optional[str] = None  # None means same as input
@@ -33,13 +33,18 @@ class ExtractConfig:
         Returns:
             tuple[bool, str]: (is_valid, error_message)
         """
-        # Check input directory exists
+        # Check input path exists (can be directory or file)
         input_path = Path(self.input_directory)
         if not input_path.exists():
-            return False, f"Input directory does not exist: {self.input_directory}"
+            return False, f"Input path does not exist: {self.input_directory}"
         
-        if not input_path.is_dir():
-            return False, f"Input path is not a directory: {self.input_directory}"
+        # Validate input path - can be directory or single MKV file
+        if input_path.is_file():
+            # Single file mode - must be MKV file
+            if not input_path.suffix.lower() == '.mkv':
+                return False, f"Single file input must be an MKV file: {self.input_directory}"
+        elif not input_path.is_dir():
+            return False, f"Input path must be either a directory or an MKV file: {self.input_directory}"
         
         # Check output directory if specified
         if self.output_directory:
@@ -148,14 +153,15 @@ class TranslateConfig:
             elif not output_path.is_dir():
                 return False, f"Output path is not a directory: {self.output_directory}"
         
-        # Validate provider
-        valid_providers = ["openai", "anthropic", "lm_studio"]
+        # Validate provider (both script names and internal names)
+        valid_providers = ["openai", "claude", "local", "anthropic", "lm_studio"]
         if self.provider not in valid_providers:
             return False, f"Invalid provider: {self.provider}. Must be one of {valid_providers}"
         
         # Check API key for external providers
-        if self.provider in ["openai", "anthropic"] and not self.api_key:
-            return False, f"API key required for provider: {self.provider}"
+        if self.provider in ["openai", "claude", "anthropic"] and not self.api_key:
+            provider_display = "Claude" if self.provider in ["claude", "anthropic"] else self.provider.upper()
+            return False, f"API key required for provider: {provider_display}"
         
         # Validate model is specified
         if not self.model:
@@ -202,22 +208,19 @@ class TranslateConfig:
             args.extend(["-o", self.output_directory])
         
         # Languages
-        args.extend(["-s", self.source_language])
-        args.extend(["-t", self.target_language])
+        args.extend(["--source-lang", self.source_language])
+        args.extend(["--target-lang", self.target_language])
         
         # Provider and model
         args.extend(["-p", self.provider])
         args.extend(["-m", self.model])
         
-        # Processing options
-        args.extend(["--max-workers", str(self.max_workers)])
-        args.extend(["--chunk-size", str(self.chunk_size)])
-        args.extend(["--temperature", str(self.temperature)])
-        args.extend(["--max-tokens", str(self.max_tokens)])
-        args.extend(["--timeout", str(self.timeout)])
+        # Processing options (only include supported arguments)
+        args.extend(["-w", str(self.max_workers)])
+        args.extend(["-s", str(self.chunk_size)])
         
-        if self.overwrite_existing:
-            args.append("--overwrite")
+        # Note: temperature, max_tokens, timeout not supported by script
+        # overwrite_existing not supported by script
         
         # Always add JSONL flag for desktop app
         args.append("--jsonl")
@@ -230,7 +233,7 @@ class TranslateConfig:
         
         if self.provider == "openai" and self.api_key:
             env["OPENAI_API_KEY"] = self.api_key
-        elif self.provider == "anthropic" and self.api_key:
+        elif self.provider in ["anthropic", "claude"] and self.api_key:
             env["ANTHROPIC_API_KEY"] = self.api_key
         
         return env
@@ -335,7 +338,7 @@ class SyncConfig:
         
         if self.provider == "openai" and self.api_key:
             env["OPENAI_API_KEY"] = self.api_key
-        elif self.provider == "anthropic" and self.api_key:
+        elif self.provider in ["anthropic", "claude"] and self.api_key:
             env["ANTHROPIC_API_KEY"] = self.api_key
         
         return env

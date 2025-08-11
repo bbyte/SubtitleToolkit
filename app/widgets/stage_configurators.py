@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
 
+from ..config.settings_schema import SettingsSchema
+
 
 class QCollapsibleGroupBox(QGroupBox):
     """A collapsible group box widget."""
@@ -108,12 +110,13 @@ class ExtractConfigWidget(QFrame):
         
         # Language selection
         self.language_combo = QComboBox()
-        self.language_combo.addItems([
-            "English (en)", "Spanish (es)", "French (fr)", "German (de)",
-            "Italian (it)", "Portuguese (pt)", "Russian (ru)", "Japanese (ja)",
-            "Korean (ko)", "Chinese (zh)", "Arabic (ar)", "Auto-detect"
-        ])
-        self.language_combo.setCurrentText("English (en)")
+        # Populate with all supported languages from schema
+        supported_languages = SettingsSchema.get_supported_languages()
+        for code, name in sorted(supported_languages.items(), key=lambda x: x[1]):
+            display_text = f"{name} ({code})" if code != "auto" else name
+            self.language_combo.addItem(display_text, code)
+        # Set default to English
+        self._set_language_combo_by_code(self.language_combo, "eng")
         layout.addRow("Subtitle Language:", self.language_combo)
         
         # Output directory selection
@@ -143,11 +146,11 @@ class ExtractConfigWidget(QFrame):
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
-        self.language_combo.currentTextChanged.connect(self.config_changed.emit)
-        self.output_dir_edit.textChanged.connect(self.config_changed.emit)
-        self.format_combo.currentTextChanged.connect(self.config_changed.emit)
-        self.extract_all_checkbox.toggled.connect(self.config_changed.emit)
-        self.overwrite_checkbox.toggled.connect(self.config_changed.emit)
+        self.language_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.output_dir_edit.textChanged.connect(lambda: self.config_changed.emit())
+        self.format_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.extract_all_checkbox.toggled.connect(lambda: self.config_changed.emit())
+        self.overwrite_checkbox.toggled.connect(lambda: self.config_changed.emit())
         
         self.output_dir_browse.clicked.connect(self._browse_output_directory)
     
@@ -170,14 +173,21 @@ class ExtractConfigWidget(QFrame):
         """Set the project directory for relative path resolution."""
         self._project_directory = directory
     
+    def _set_language_combo_by_code(self, combo: QComboBox, code: str) -> None:
+        """Set combo box selection by language code."""
+        for i in range(combo.count()):
+            if combo.itemData(i) == code:
+                combo.setCurrentIndex(i)
+                break
+    
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
         return {
-            'language': self.language_combo.currentText().split(' (')[1].rstrip(')') if ' (' in self.language_combo.currentText() else 'auto',
+            'language_code': self.language_combo.currentData() or 'eng',
             'output_directory': self.output_dir_edit.text() or self._project_directory,
             'format': self.format_combo.currentText().split(' (')[0].lower(),
             'extract_all': self.extract_all_checkbox.isChecked(),
-            'overwrite': self.overwrite_checkbox.isChecked()
+            'overwrite_existing': self.overwrite_checkbox.isChecked()
         }
     
     def validate(self) -> ValidationResult:
@@ -210,19 +220,23 @@ class TranslateConfigWidget(QFrame):
         
         # Source language
         self.source_lang_combo = QComboBox()
-        self.source_lang_combo.addItems([
-            "Auto-detect", "English", "Spanish", "French", "German", "Italian",
-            "Portuguese", "Russian", "Japanese", "Korean", "Chinese", "Arabic"
-        ])
+        supported_languages = SettingsSchema.get_supported_languages()
+        for code, name in sorted(supported_languages.items(), key=lambda x: x[1]):
+            display_text = f"{name} ({code})" if code != "auto" else name
+            self.source_lang_combo.addItem(display_text, code)
         layout.addRow("Source Language:", self.source_lang_combo)
         
         # Target language
         self.target_lang_combo = QComboBox()
-        self.target_lang_combo.addItems([
-            "English", "Spanish", "French", "German", "Italian", "Portuguese",
-            "Russian", "Japanese", "Korean", "Chinese", "Arabic"
-        ])
+        for code, name in sorted(supported_languages.items(), key=lambda x: x[1]):
+            if code != "auto":  # Target language can't be auto-detect
+                display_text = f"{name} ({code})"
+                self.target_lang_combo.addItem(display_text, code)
         layout.addRow("Target Language:", self.target_lang_combo)
+        
+        # Set defaults
+        self._set_language_combo_by_code(self.source_lang_combo, "auto")
+        self._set_language_combo_by_code(self.target_lang_combo, "en")
         
         # Translation engine
         self.engine_combo = QComboBox()
@@ -262,13 +276,13 @@ class TranslateConfigWidget(QFrame):
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
-        self.source_lang_combo.currentTextChanged.connect(self.config_changed.emit)
-        self.target_lang_combo.currentTextChanged.connect(self.config_changed.emit)
+        self.source_lang_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.target_lang_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
-        self.model_combo.currentTextChanged.connect(self.config_changed.emit)
-        self.api_key_edit.textChanged.connect(self.config_changed.emit)
-        self.chunk_size_spin.valueChanged.connect(self.config_changed.emit)
-        self.context_edit.textChanged.connect(self.config_changed.emit)
+        self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
+        self.chunk_size_spin.valueChanged.connect(lambda: self.config_changed.emit())
+        self.context_edit.textChanged.connect(lambda: self.config_changed.emit())
         
         self.show_key_button.toggled.connect(self._toggle_api_key_visibility)
     
@@ -289,7 +303,7 @@ class TranslateConfigWidget(QFrame):
             self.api_key_edit.setPlaceholderText("OpenAI API key")
         elif engine == "Claude":
             self.model_combo.addItems([
-                "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"
+                "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-haiku-20240307", "claude-3-opus-20240229"
             ])
             self.api_key_edit.setPlaceholderText("Anthropic API key")
         elif engine == "LM Studio":
@@ -309,10 +323,20 @@ class TranslateConfigWidget(QFrame):
     
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
+        # Map UI display names to script provider names
+        provider_mapping = {
+            'openai': 'openai',
+            'claude': 'claude',  # Claude UI name maps to claude script provider
+            'lm_studio': 'local'  # LM Studio UI name maps to local script provider
+        }
+        
+        engine_text = self.engine_combo.currentText().lower().replace(' ', '_')
+        provider = provider_mapping.get(engine_text, engine_text)
+        
         return {
-            'source_language': self.source_lang_combo.currentText().lower(),
-            'target_language': self.target_lang_combo.currentText().lower(),
-            'engine': self.engine_combo.currentText().lower(),
+            'source_language': self.source_lang_combo.currentData() or 'auto',
+            'target_language': self.target_lang_combo.currentData() or 'en',
+            'provider': provider,
             'model': self.model_combo.currentText(),
             'api_key': self.api_key_edit.text(),
             'chunk_size': self.chunk_size_spin.value(),
@@ -324,15 +348,23 @@ class TranslateConfigWidget(QFrame):
         config = self.get_config()
         
         # Check if API key is required
-        engine = config['engine']
-        if engine in ['openai', 'claude'] and not config['api_key']:
-            return ValidationResult(False, f"{engine.upper()} API key is required")
+        provider = config['provider']
+        if provider in ['openai', 'anthropic'] and not config['api_key']:
+            provider_display = 'Claude' if provider == 'anthropic' else provider.upper()
+            return ValidationResult(False, f"{provider_display} API key is required")
         
         # Check language selection
-        if config['source_language'] == config['target_language'] and config['source_language'] != 'auto-detect':
+        if config['source_language'] == config['target_language'] and config['source_language'] != 'auto':
             return ValidationResult(False, "Source and target languages cannot be the same")
         
         return ValidationResult(True)
+    
+    def _set_language_combo_by_code(self, combo: QComboBox, code: str) -> None:
+        """Set combo box selection by language code."""
+        for i in range(combo.count()):
+            if combo.itemData(i) == code:
+                combo.setCurrentIndex(i)
+                break
 
 
 class SyncConfigWidget(QFrame):
@@ -389,11 +421,11 @@ class SyncConfigWidget(QFrame):
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
-        self.template_edit.textChanged.connect(self.config_changed.emit)
-        self.dry_run_checkbox.toggled.connect(self.config_changed.emit)
+        self.template_edit.textChanged.connect(lambda: self.config_changed.emit())
+        self.dry_run_checkbox.toggled.connect(lambda: self.config_changed.emit())
         self.confidence_slider.valueChanged.connect(self._on_confidence_changed)
-        self.backup_checkbox.toggled.connect(self.config_changed.emit)
-        self.case_sensitive_checkbox.toggled.connect(self.config_changed.emit)
+        self.backup_checkbox.toggled.connect(lambda: self.config_changed.emit())
+        self.case_sensitive_checkbox.toggled.connect(lambda: self.config_changed.emit())
     
     def _on_confidence_changed(self, value: int) -> None:
         """Handle confidence threshold change."""
@@ -550,3 +582,21 @@ class StageConfigurators(QFrame):
                 return ValidationResult(False, f"{stage.title()} configuration error: {result.error_message}")
         
         return ValidationResult(True)
+    
+    def get_extract_config(self) -> Dict[str, Any]:
+        """Get extract stage configuration."""
+        return self.extract_config.get_config()
+    
+    def get_translate_config(self) -> Dict[str, Any]:
+        """Get translate stage configuration."""
+        return self.translate_config.get_config()
+    
+    def get_sync_config(self) -> Dict[str, Any]:
+        """Get sync stage configuration."""
+        return self.sync_config.get_config()
+    
+    def update_from_settings(self, settings: Dict[str, Any]) -> None:
+        """Update configurators from settings."""
+        # This method can be used to update the configurators when settings change
+        # For now, it's a placeholder - individual config widgets manage their own state
+        pass

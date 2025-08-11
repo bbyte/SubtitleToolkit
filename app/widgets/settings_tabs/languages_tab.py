@@ -412,7 +412,7 @@ class LanguagesTab(QWidget):
         self.supported_count_label.setText(str(len(languages)))
         
         # Show most common languages
-        common = ["English (en)", "Spanish (es)", "French (fr)", "German (de)", "Chinese (zh)"]
+        common = ["English (en)", "Spanish (es)", "French (fr)", "German (de)", "Bulgarian (bg)"]
         self.common_languages_label.setText(", ".join(common))
     
     def load_settings(self, settings: Dict[str, Any]):
@@ -428,7 +428,7 @@ class LanguagesTab(QWidget):
         recent_source = settings.get("recent_source_languages", ["auto", "es", "fr", "de"])
         self.recent_source.set_languages(recent_source)
         
-        recent_target = settings.get("recent_target_languages", ["en", "es", "fr", "de"])
+        recent_target = settings.get("recent_target_languages", ["en", "es", "fr", "de", "bg"])
         self.recent_target.set_languages(recent_target)
         
         # Advanced settings

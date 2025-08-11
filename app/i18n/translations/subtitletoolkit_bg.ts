@@ -102,6 +102,14 @@ Restart now?</source>
         <source>Ready to process</source>
         <translation>Готов за обработка</translation>
     </message>
+    <message>
+        <source>No File Selected</source>
+        <translation>Няма избран файл</translation>
+    </message>
+    <message>
+        <source>Please select a file before running.</source>
+        <translation>Моля изберете файл преди стартиране.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>
@@ -186,6 +194,50 @@ Restart now?</source>
     <message>
         <source>Sync Subtitle Names</source>
         <translation>Синхронизирай имената на субтитрите</translation>
+    </message>
+    <message>
+        <source>Extract Subtitles</source>
+        <translation>Извлечи субтитри</translation>
+    </message>
+    <message>
+        <source>Extract subtitle tracks from MKV video files
+Requires: ffmpeg/ffprobe
+Output: .srt files</source>
+        <translation>Извлича субтитри от MKV видео файлове
+Изисква: ffmpeg/ffprobe
+Изход: .srt файлове</translation>
+    </message>
+    <message>
+        <source>Translate Subtitles</source>
+        <translation>Преведи субтитри</translation>
+    </message>
+    <message>
+        <source>Translate SRT subtitle files using AI services
+Requires: API keys (OpenAI/Claude/LM Studio)
+Output: Translated .srt files</source>
+        <translation>Превежда SRT субтитри използвайки AI услуги
+Изисква: API ключове (OpenAI/Claude/LM Studio)
+Изход: Преведени .srt файлове</translation>
+    </message>
+    <message>
+        <source>Sync Subtitle Names</source>
+        <translation>Синхронизирай имената на субтитрите</translation>
+    </message>
+    <message>
+        <source>Intelligently rename SRT files to match video files
+Requires: AI service for name matching
+Output: Renamed subtitle files</source>
+        <translation>Интелигентно преименува SRT файлове за съответствие с видео файлове
+Изисква: AI услуга за съпоставяне на имена
+Изход: Преименувани субтитри файлове</translation>
+    </message>
+    <message>
+        <source>Sync stage is not available in single file mode.
+Filename synchronization only applies when processing
+multiple files in a directory.</source>
+        <translation>Етапът синхронизиране не е достъпен в режим единичен файл.
+Синхронизирането на имена се прилага само при обработка
+на множество файлове в папка.</translation>
     </message>
 </context>
 <context>

@@ -107,7 +107,7 @@ class LogPanel(QFrame):
         # Log display
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
-        self.log_display.setFont(QFont("Consolas", 9))
+        self.log_display.setFont(QFont("Consolas", 16))
         self.log_display.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
@@ -211,7 +211,7 @@ class LogPanel(QFrame):
         
         # Format message parts
         prefix = self._level_prefixes[message.level]
-        full_message = f"[{timestamp_str}] {prefix} {message.message}\\n"
+        full_message = f"[{timestamp_str}] {prefix} {message.message}\n"
         
         # Set color for the message
         format = QTextCharFormat()

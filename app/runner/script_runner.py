@@ -245,16 +245,57 @@ class ScriptRunner(QObject):
             self._aggregator = EventAggregator(self._current_stage)
         
         # Start process
-        self._logger.info(f"Starting process: {' '.join(command)}")
+        command_str = ' '.join(command)
+        self._logger.info(f"Starting process: {command_str}")
+        
+        # Emit debug info to UI
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Executing command: {command_str}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Working directory: {self._script_dir}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Environment variables: {len(env_vars)} custom vars")
+            
+            # Show ALL environment variables (including system ones for debugging)
+            full_env = QProcess.systemEnvironment()
+            for env_entry in full_env:
+                if '=' in env_entry:
+                    key, value = env_entry.split('=', 1)
+                    if key in env_vars:
+                        # This is one of our custom env vars
+                        if 'api_key' in key.lower() or 'key' in key.lower():
+                            masked_value = f"{value[:8]}***{value[-4:]}" if len(value) > 12 else "***"
+                            self.signals.info_received.emit(self._current_stage, f"DEBUG: CUSTOM_ENV: {key}={masked_value}")
+                        else:
+                            self.signals.info_received.emit(self._current_stage, f"DEBUG: CUSTOM_ENV: {key}={value}")
+            
+            # Show environment variable details (without showing actual API keys)
+            for key, value in env_vars.items():
+                if 'api_key' in key.lower() or 'key' in key.lower():
+                    masked_value = f"{value[:8]}***{value[-4:]}" if len(value) > 12 else "***"
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: SET_ENV: {key}={masked_value}")
+                else:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: SET_ENV: {key}={value}")
+            
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Starting process with PID will be assigned...")
+        
         self._process_start_time = datetime.now()
+        
+        # Add immediate debugging right before starting process
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: About to start: {command[0]} with {len(command)-1} arguments")
         
         process.start(command[0], command[1:])
         
         if not process.waitForStarted(5000):  # 5 second timeout
             error_msg = f"Failed to start process: {process.errorString()}"
             self._logger.error(error_msg)
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: FAILED TO START: {error_msg}")
             self._cleanup_process()
             raise RuntimeError(error_msg)
+        
+        # Add debugging right after successful start
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Process started successfully, waiting for first output...")
         
         return process
     
@@ -262,7 +303,46 @@ class ScriptRunner(QObject):
         """Handle process started signal."""
         if self._current_stage:
             self._logger.info(f"Process started for stage: {self._current_stage.value}")
+            
+            # Get process ID for debugging
+            if self._current_process:
+                process_id = self._current_process.processId()
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process started with PID: {process_id}")
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process state: {self._current_process.state()}")
+                
+                # Set up periodic output checking for early crash detection
+                self._setup_output_monitoring()
+            
             self.signals.process_started.emit(self._current_stage)
+    
+    def _setup_output_monitoring(self):
+        """Set up periodic monitoring for process output."""
+        if hasattr(self, '_output_monitor_timer'):
+            self._output_monitor_timer.stop()
+            
+        self._output_monitor_timer = QTimer(self)
+        self._output_monitor_timer.timeout.connect(self._check_process_output)
+        self._output_monitor_timer.start(100)  # Check every 100ms
+    
+    def _check_process_output(self):
+        """Periodically check for process output."""
+        if not self._current_process or self._current_process.state() != QProcess.Running:
+            if hasattr(self, '_output_monitor_timer'):
+                self._output_monitor_timer.stop()
+            return
+        
+        # Force check for available output
+        if self._current_process.bytesAvailable() > 0:
+            self._on_stdout_ready()
+            
+        # Check stderr too
+        try:
+            stderr_data = self._current_process.readAllStandardError()
+            if stderr_data and len(stderr_data.data()) > 0:
+                self._on_stderr_ready()
+        except Exception as e:
+            # Ignore stderr checking errors
+            pass
     
     def _on_stdout_ready(self):
         """Handle stdout data from process."""
@@ -274,6 +354,17 @@ class ScriptRunner(QObject):
         # Emit raw output signal
         self.signals.process_output_received.emit(data)
         
+        # Send ALL stdout to debug log immediately - don't filter anything
+        if self._current_stage and data:
+            # Log the raw data first
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: RAW_STDOUT: {repr(data)}")
+            
+            # Then split by lines for readability
+            lines = data.split('\n')
+            for i, line in enumerate(lines):
+                # Include empty lines to preserve structure
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: STDOUT[{i}]: {repr(line)}")
+        
         # Parse JSONL events
         try:
             for event, error in self._parser.parse_stream_data(data):
@@ -281,10 +372,15 @@ class ScriptRunner(QObject):
                     self._handle_event(event)
                 elif error:
                     self.signals.parse_error.emit(data, error)
+                    # Also send parse errors to debug log
+                    if self._current_stage:
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: PARSE ERROR: {error}")
                     
         except Exception as e:
             self._logger.error(f"Error processing stdout: {e}")
             self.signals.parse_error.emit(data, str(e))
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: PROCESSING ERROR: {str(e)}")
     
     def _on_stderr_ready(self):
         """Handle stderr data from process."""
@@ -296,13 +392,35 @@ class ScriptRunner(QObject):
         # Emit stderr signal
         self.signals.process_error_received.emit(data)
         
+        # Send ALL stderr to UI for debugging - don't filter anything
+        if self._current_stage and data:
+            # Log the raw data first
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: RAW_STDERR: {repr(data)}")
+            
+            # Then split by lines for readability
+            lines = data.split('\n')
+            for i, line in enumerate(lines):
+                # Include empty lines to preserve structure
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: STDERR[{i}]: {repr(line)}")
+        
         # Log stderr data
-        self._logger.warning(f"Process stderr: {data.strip()}")
+        self._logger.warning(f"Process stderr: {data}")
     
     def _on_process_finished(self, exit_code: int, exit_status: QProcess.ExitStatus):
         """Handle process finished signal."""
         if not self._current_stage:
             return
+        
+        # Capture any remaining stdout/stderr data before finishing
+        if self._current_process:
+            remaining_stdout = self._current_process.readAllStandardOutput().data().decode('utf-8', errors='replace')
+            remaining_stderr = self._current_process.readAllStandardError().data().decode('utf-8', errors='replace')
+            
+            if remaining_stdout:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_STDOUT: {repr(remaining_stdout)}")
+                
+            if remaining_stderr:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_STDERR: {repr(remaining_stderr)}")
         
         # Flush any remaining parser buffer
         try:
@@ -354,11 +472,26 @@ class ScriptRunner(QObject):
         status = "successfully" if result.success else "with errors"
         self._logger.info(f"Process completed {status} in {duration:.1f}s")
         
+        # Send debug info to UI
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Process completed {status} in {duration:.1f}s")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Exit code: {exit_code}, Exit status: {exit_status}")
+            
+            if result.output_files:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Output files: {result.output_files}")
+            
+            if hasattr(result, 'files_processed') and result.files_processed:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Files processed: {result.files_processed}, Successful: {result.files_successful}")
+        
         # Cleanup
         self._cleanup_process()
     
     def _on_process_error(self, error: QProcess.ProcessError):
         """Handle process error signal."""
+        # Stop output monitoring immediately
+        if hasattr(self, '_output_monitor_timer'):
+            self._output_monitor_timer.stop()
+            
         error_messages = {
             QProcess.FailedToStart: "Failed to start process",
             QProcess.Crashed: "Process crashed",
@@ -372,6 +505,26 @@ class ScriptRunner(QObject):
         self._logger.error(error_msg)
         
         if self._current_stage:
+            # Send detailed error information to debug log
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: PROCESS ERROR: {error_msg}")
+            if self._current_process:
+                # Try to read any final output before the process dies
+                try:
+                    final_stdout = self._current_process.readAllStandardOutput().data().decode('utf-8', errors='replace')
+                    final_stderr = self._current_process.readAllStandardError().data().decode('utf-8', errors='replace')
+                    
+                    if final_stdout:
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CRASH_FINAL_STDOUT: {repr(final_stdout)}")
+                    if final_stderr:
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CRASH_FINAL_STDERR: {repr(final_stderr)}")
+                        
+                except Exception as e:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: Error reading final output: {e}")
+                
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process exit code: {self._current_process.exitCode()}")
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process exit status: {self._current_process.exitStatus()}")
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process state: {self._current_process.state()}")
+            
             self.signals.process_failed.emit(self._current_stage, error_msg)
         
         self._cleanup_process()
@@ -456,9 +609,23 @@ class ScriptRunner(QObject):
         """Clean up process-related state."""
         self._termination_timer.stop()
         
+        # Stop output monitoring
+        if hasattr(self, '_output_monitor_timer'):
+            self._output_monitor_timer.stop()
+        
         if self._current_process:
-            self._current_process.deleteLater()
-            self._current_process = None
+            # Ensure process is properly terminated before cleanup
+            if self._current_process.state() == QProcess.Running:
+                self._current_process.terminate()
+                if not self._current_process.waitForFinished(3000):  # 3 second timeout
+                    self._current_process.kill()
+                    self._current_process.waitForFinished(1000)  # 1 second timeout for kill
+            
+            # Safely delete the process
+            process = self._current_process
+            self._current_process = None  # Clear reference first
+            if process:
+                process.deleteLater()
         
         self._current_stage = None
         self._current_config = None

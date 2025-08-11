@@ -210,3 +210,42 @@ class StageToggles(QFrame):
         """Get enabled stages in their logical processing order."""
         order = ['extract', 'translate', 'sync']
         return [stage for stage in order if self._stages[stage]]
+    
+    def set_stage_availability(self, stage: str, available: bool) -> None:
+        """Set whether a stage is available (can be enabled/disabled)."""
+        if stage not in self._stages:
+            return
+        
+        checkbox_map = {
+            'extract': self.extract_checkbox,
+            'translate': self.translate_checkbox,
+            'sync': self.sync_checkbox
+        }
+        
+        checkbox = checkbox_map[stage]
+        checkbox.setEnabled(available)
+        
+        # If stage is being made unavailable and it's currently enabled, disable it
+        if not available and self._stages[stage]:
+            self.set_stage_enabled(stage, False)
+    
+    def set_single_file_mode(self, single_file_mode: bool) -> None:
+        """Configure stage availability based on selection mode."""
+        if single_file_mode:
+            # In single file mode, sync stage is not applicable
+            self.set_stage_availability('sync', False)
+            # Update tooltip to explain why sync is disabled
+            self.sync_checkbox.setToolTip(self.tr(
+                "Sync stage is not available in single file mode.\n"
+                "Filename synchronization only applies when processing\n"
+                "multiple files in a directory."
+            ))
+        else:
+            # In directory mode, all stages are available
+            self.set_stage_availability('sync', True)
+            # Restore original tooltip
+            self.sync_checkbox.setToolTip(self.tr(
+                "Intelligently rename SRT files to match video files\n"
+                "Requires: AI service for name matching\n"
+                "Output: Renamed subtitle files"
+            ))

@@ -102,6 +102,14 @@ La aplicación necesita reiniciarse para aplicar el nuevo idioma.
         <source>Ready to process</source>
         <translation>Listo para procesar</translation>
     </message>
+    <message>
+        <source>No File Selected</source>
+        <translation>No hay Archivo Seleccionado</translation>
+    </message>
+    <message>
+        <source>Please select a file before running.</source>
+        <translation>Por favor seleccione un archivo antes de ejecutar.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>
@@ -186,6 +194,50 @@ La aplicación necesita reiniciarse para aplicar el nuevo idioma.
     <message>
         <source>Sync Subtitle Names</source>
         <translation>Sincronizar Nombres de Subtítulos</translation>
+    </message>
+    <message>
+        <source>Extract Subtitles</source>
+        <translation>Extraer Subtítulos</translation>
+    </message>
+    <message>
+        <source>Extract subtitle tracks from MKV video files
+Requires: ffmpeg/ffprobe
+Output: .srt files</source>
+        <translation>Extraer pistas de subtítulos de archivos de video MKV
+Requiere: ffmpeg/ffprobe
+Salida: archivos .srt</translation>
+    </message>
+    <message>
+        <source>Translate Subtitles</source>
+        <translation>Traducir Subtítulos</translation>
+    </message>
+    <message>
+        <source>Translate SRT subtitle files using AI services
+Requires: API keys (OpenAI/Claude/LM Studio)
+Output: Translated .srt files</source>
+        <translation>Traducir archivos de subtítulos SRT usando servicios de IA
+Requiere: claves API (OpenAI/Claude/LM Studio)
+Salida: archivos .srt traducidos</translation>
+    </message>
+    <message>
+        <source>Sync Subtitle Names</source>
+        <translation>Sincronizar Nombres de Subtítulos</translation>
+    </message>
+    <message>
+        <source>Intelligently rename SRT files to match video files
+Requires: AI service for name matching
+Output: Renamed subtitle files</source>
+        <translation>Renombrar inteligentemente archivos SRT para coincidir con archivos de video
+Requiere: servicio de IA para coincidencia de nombres
+Salida: archivos de subtítulos renombrados</translation>
+    </message>
+    <message>
+        <source>Sync stage is not available in single file mode.
+Filename synchronization only applies when processing
+multiple files in a directory.</source>
+        <translation>La etapa de sincronización no está disponible en modo archivo individual.
+La sincronización de nombres solo aplica al procesar
+múltiples archivos en un directorio.</translation>
     </message>
 </context>
 <context>

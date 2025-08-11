@@ -16,17 +16,44 @@ from datetime import datetime, timezone
 # Load environment variables
 load_dotenv()
 
-# Initialize clients
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-lmstudio_client = OpenAI(
-    base_url="http://localhost:1234/v1",
-    api_key="not-needed"
-)
+# Global clients (initialized when needed)
+openai_client = None
+anthropic_client = None
+lmstudio_client = None
+
+def get_openai_client(api_key=None):
+    """Get OpenAI client, initializing if needed."""
+    global openai_client
+    if openai_client is None:
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OpenAI API key is required")
+        openai_client = OpenAI(api_key=api_key)
+    return openai_client
+
+def get_anthropic_client(api_key=None):
+    """Get Anthropic client, initializing if needed."""
+    global anthropic_client
+    if anthropic_client is None:
+        api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("Anthropic API key is required")
+        anthropic_client = Anthropic(api_key=api_key)
+    return anthropic_client
+
+def get_lmstudio_client():
+    """Get LM Studio client, initializing if needed."""
+    global lmstudio_client
+    if lmstudio_client is None:
+        lmstudio_client = OpenAI(
+            base_url="http://localhost:1234/v1",
+            api_key="not-needed"
+        )
+    return lmstudio_client
 
 # Available models
 OPENAI_MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-4-turbo-preview", "gpt-3.5-turbo"]
-CLAUDE_MODELS = ["claude-3-opus-20240229", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
+CLAUDE_MODELS = ["claude-3-opus-20240229", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-haiku-20240307"]
 LMSTUDIO_MODELS = ["local"]
 
 # Maximum retries for invalid chunks
@@ -673,7 +700,8 @@ def retry_translation_with_split(chunk, provider, model, system_prompt, split_de
     return combined, (first_success and second_success)
 
 def translate_with_openai(content, model, system_prompt):
-    response = openai_client.chat.completions.create(
+    client = get_openai_client()
+    response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -687,7 +715,8 @@ def translate_with_claude(content, model, system_prompt):
     # Set max tokens based on model
     max_tokens = 8192 if "haiku" in model.lower() else 100000
     
-    response = anthropic_client.messages.create(
+    client = get_anthropic_client()
+    response = client.messages.create(
         model=model,
         system=system_prompt,
         max_tokens=max_tokens,  # Use model-specific token limit
@@ -702,7 +731,8 @@ def translate_with_claude(content, model, system_prompt):
 
 def translate_with_lmstudio(content, model, system_prompt):
     try:
-        response = lmstudio_client.chat.completions.create(
+        client = get_lmstudio_client()
+        response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -960,6 +990,9 @@ def get_output_filename(input_file, output_file=None):
     return f"{base_name}.bg.srt"
 
 if __name__ == "__main__":
+    # Early debug output
+    print(f"DEBUG: Script starting with args: {sys.argv}", file=sys.stderr, flush=True)
+    
     parser = argparse.ArgumentParser(description="Translate SRT files between languages")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-f", "--file", help="Path to the input SRT file")
@@ -975,10 +1008,14 @@ if __name__ == "__main__":
     parser.add_argument("--jsonl", action="store_true", help="Enable JSONL output mode (suppresses colored output)")
     args = parser.parse_args()
     
+    # Early debug output about parsed args
+    print(f"DEBUG: Parsed args - provider: {args.provider}, model: {args.model}, file: {getattr(args, 'file', None)}", file=sys.stderr, flush=True)
+    
     # Set global JSONL mode
     JSONL_MODE = args.jsonl
 
     # Validate and set default model based on provider
+    print(f"DEBUG: Starting model validation for provider: {args.provider}, model: {args.model}", file=sys.stderr, flush=True)
     if args.provider == "openai":
         if not args.model:
             args.model = "gpt-4o-mini"

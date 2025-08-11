@@ -274,6 +274,11 @@ class MainWindow(QMainWindow):
         """Connect all signal/slot relationships."""
         # Project selector signals
         self.project_selector.directory_selected.connect(self._on_project_changed)
+        self.project_selector.file_selected.connect(self._on_project_changed)
+        self.project_selector.selection_cleared.connect(self._on_project_cleared)
+        
+        # Connect mode changes to stage availability
+        self.project_selector.mode_group.buttonToggled.connect(self._on_selection_mode_changed)
         
         # Stage toggles signals
         self.stage_toggles.stages_changed.connect(self._on_stages_changed)
@@ -297,10 +302,35 @@ class MainWindow(QMainWindow):
         # Window state manager signals
         self.window_state_manager.validation_failed.connect(self._on_window_state_error)
     
-    def _on_project_changed(self, directory: str) -> None:
-        """Handle project directory change."""
-        self.project_changed.emit(directory)
-        self.log_panel.add_message("info", f"Project directory selected: {directory}")
+    def _on_project_changed(self, path: str) -> None:
+        """Handle project directory or file change."""
+        self.project_changed.emit(path)
+        
+        # Determine if it's a directory or file
+        from pathlib import Path
+        path_obj = Path(path)
+        if path_obj.is_dir():
+            self.log_panel.add_message("info", f"Project directory selected: {path}")
+        else:
+            self.log_panel.add_message("info", f"Single file selected: {path}")
+    
+    def _on_project_cleared(self) -> None:
+        """Handle project selection being cleared."""
+        self.project_changed.emit("")
+        self.log_panel.add_message("info", "Project selection cleared")
+    
+    def _on_selection_mode_changed(self, button, checked: bool) -> None:
+        """Handle selection mode change between directory and file."""
+        if not checked:  # Only respond to button being checked
+            return
+        
+        # Update stage toggles based on mode
+        is_single_file_mode = (button == self.project_selector.file_radio)
+        self.stage_toggles.set_single_file_mode(is_single_file_mode)
+        
+        # Log the mode change
+        mode_name = "Single File" if is_single_file_mode else "Directory"
+        self.log_panel.add_message("info", f"Selection mode changed to: {mode_name}")
     
     def _on_stages_changed(self, stages: dict) -> None:
         """Handle stage selection changes."""
@@ -351,20 +381,31 @@ class MainWindow(QMainWindow):
         """Handle window state management errors."""
         self.log_panel.add_message("warning", f"Window state: {error_message}")
     
-    def _update_project_dependent_ui(self, directory: str) -> None:
+    def _update_project_dependent_ui(self, path: str) -> None:
         """Update UI elements that depend on project selection."""
-        has_project = bool(directory)
+        has_selection = bool(path)
         
         # Enable/disable relevant UI elements
-        self.stage_toggles.setEnabled(has_project)
-        self.stage_configurators.setEnabled(has_project)
+        self.stage_toggles.setEnabled(has_selection)
+        self.stage_configurators.setEnabled(has_selection)
         
-        if has_project:
-            # Update status
-            self.status_bar.showMessage(f"Project: {directory}")
+        if has_selection:
+            # Determine if it's a directory or file
+            from pathlib import Path
+            path_obj = Path(path)
+            if path_obj.is_dir():
+                self.status_bar.showMessage(f"Project: {path}")
+            else:
+                self.status_bar.showMessage(f"File: {path_obj.name}")
             
             # Update configurators with project path
-            self.stage_configurators.set_project_directory(directory)
+            # For single files, use parent directory for configurators
+            from pathlib import Path
+            config_path = Path(path)
+            if config_path.is_file():
+                self.stage_configurators.set_project_directory(str(config_path.parent))
+            else:
+                self.stage_configurators.set_project_directory(path)
         else:
             self.status_bar.showMessage("No project selected")
     
@@ -372,18 +413,25 @@ class MainWindow(QMainWindow):
         """Update UI elements that depend on stage selection."""
         has_enabled_stages = any(stages.values())
         
-        # Enable/disable run button
-        has_project = bool(self.project_selector.selected_directory)
-        self.action_buttons.set_run_enabled(has_project and has_enabled_stages)
+        # Enable/disable run button - check for either directory or file selection
+        has_selection = bool(self.project_selector.get_selected_path())
+        self.action_buttons.set_run_enabled(has_selection and has_enabled_stages)
     
     def _validate_configuration(self) -> bool:
         """Validate current configuration before running."""
-        # Check if project is selected
-        if not self.project_selector.selected_directory:
-            QMessageBox.warning(
-                self, self.tr("No Project Selected"),
-                self.tr("Please select a project directory before running.")
-            )
+        # Check if project/file is selected
+        selected_path = self.project_selector.get_selected_path()
+        if not selected_path:
+            if self.project_selector.is_file_mode():
+                QMessageBox.warning(
+                    self, self.tr("No File Selected"),
+                    self.tr("Please select a file before running.")
+                )
+            else:
+                QMessageBox.warning(
+                    self, self.tr("No Project Selected"),
+                    self.tr("Please select a project directory before running.")
+                )
             return False
         
         # Check if at least one stage is enabled
@@ -574,13 +622,17 @@ class MainWindow(QMainWindow):
     def _start_processing_pipeline(self) -> None:
         """Start the processing pipeline based on enabled stages."""
         stages = self.stage_toggles.get_enabled_stages()
-        project_dir = self.project_selector.selected_directory
+        selected_path = self.project_selector.get_selected_path()
         
-        if not project_dir:
-            raise ValueError("No project directory selected")
+        if not selected_path:
+            raise ValueError("No project or file selected")
         
         self.log_panel.add_message("info", "Starting processing pipeline...")
         self._set_running_state(True)
+        
+        # Start progress tracking
+        enabled_stage_list = [stage for stage, enabled in stages.items() if enabled]
+        self.progress_section.start_processing(enabled_stage_list)
         
         # Start with the first enabled stage
         if stages.get('extract', False):
@@ -622,7 +674,7 @@ class MainWindow(QMainWindow):
     
     def _build_extract_config(self) -> ExtractConfig:
         """Build extraction configuration from UI settings."""
-        project_dir = self.project_selector.selected_directory
+        selected_path = self.project_selector.get_selected_path()
         
         # Get configuration from stage configurators
         extract_settings = self.stage_configurators.get_extract_config()
@@ -632,7 +684,7 @@ class MainWindow(QMainWindow):
         tools_config = settings.get('tools', {})
         
         return ExtractConfig(
-            input_directory=project_dir,
+            input_directory=selected_path,
             language_code=extract_settings.get('language_code', 'eng'),
             output_directory=extract_settings.get('output_directory'),
             recursive=extract_settings.get('recursive', True),
@@ -643,7 +695,7 @@ class MainWindow(QMainWindow):
     
     def _build_translate_config(self) -> TranslateConfig:
         """Build translation configuration from UI settings."""
-        project_dir = self.project_selector.selected_directory
+        selected_path = self.project_selector.get_selected_path()
         
         # Get configuration from stage configurators
         translate_settings = self.stage_configurators.get_translate_config()
@@ -656,14 +708,52 @@ class MainWindow(QMainWindow):
         provider = translate_settings.get('provider', 'openai')
         provider_config = translators_config.get(provider, {})
         
+        # Determine if single file or directory mode
+        from pathlib import Path
+        selected_path_obj = Path(selected_path)
+        
+        if selected_path_obj.is_file():
+            # Single file mode - for translation, we need to find the corresponding SRT file
+            # If this is called after extraction, look for the SRT file in the same directory
+            if selected_path_obj.suffix.lower() == '.mkv':
+                # Look for corresponding SRT file from extraction
+                srt_file = selected_path_obj.with_suffix('.srt')
+                if srt_file.exists():
+                    input_files = [str(srt_file)]
+                else:
+                    # SRT file doesn't exist yet - use directory mode to scan for SRT files
+                    input_files = []
+                    selected_path = str(selected_path_obj.parent)
+            else:
+                # It's already an SRT file
+                input_files = [selected_path]
+            
+            if input_files:
+                return TranslateConfig(
+                    input_files=input_files,
+                    output_directory=translate_settings.get('output_directory'),
+                    source_language=translate_settings.get('source_language', 'auto'),
+                    target_language=translate_settings.get('target_language', 'en'),
+                    provider=provider,
+                    model=translate_settings.get('model') or provider_config.get('default_model', ''),
+                    api_key=translate_settings.get('api_key') or provider_config.get('api_key', ''),
+                    base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
+                    max_workers=advanced_config.get('max_concurrent_workers', 3),
+                    temperature=provider_config.get('temperature', 0.3),
+                    max_tokens=provider_config.get('max_tokens', 4096),
+                    timeout=provider_config.get('timeout', 30),
+                    overwrite_existing=translate_settings.get('overwrite_existing', False),
+                )
+        
+        # Directory mode (or fallback for single file) - use input_directory
         return TranslateConfig(
-            input_directory=project_dir,
+            input_directory=selected_path,
             output_directory=translate_settings.get('output_directory'),
             source_language=translate_settings.get('source_language', 'auto'),
             target_language=translate_settings.get('target_language', 'en'),
             provider=provider,
             model=translate_settings.get('model') or provider_config.get('default_model', ''),
-            api_key=provider_config.get('api_key', ''),
+            api_key=translate_settings.get('api_key') or provider_config.get('api_key', ''),
             base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
             max_workers=advanced_config.get('max_concurrent_workers', 3),
             temperature=provider_config.get('temperature', 0.3),
@@ -674,7 +764,7 @@ class MainWindow(QMainWindow):
     
     def _build_sync_config(self) -> SyncConfig:
         """Build sync configuration from UI settings."""
-        project_dir = self.project_selector.selected_directory
+        selected_path = self.project_selector.get_selected_path()
         
         # Get configuration from stage configurators
         sync_settings = self.stage_configurators.get_sync_config()
@@ -687,7 +777,7 @@ class MainWindow(QMainWindow):
         provider_config = translators_config.get(provider, {})
         
         return SyncConfig(
-            input_directory=project_dir,
+            input_directory=selected_path,
             provider=provider,
             model=sync_settings.get('model') or provider_config.get('default_model', ''),
             confidence_threshold=sync_settings.get('confidence_threshold', 0.8),
@@ -702,8 +792,8 @@ class MainWindow(QMainWindow):
         """Handle process started signal."""
         stage_name = stage.value.capitalize()
         self.log_panel.add_message("info", f"{stage_name} stage started")
-        self.progress_section.set_stage_active(stage.value)
-        self.progress_section.set_progress(0, f"Starting {stage_name.lower()}...")
+        self.progress_section.update_stage(stage.value, f"Starting {stage_name.lower()}...")
+        self.progress_section.update_progress(0, stage.value, f"Starting {stage_name.lower()}...")
     
     def _on_process_finished(self, result) -> None:  # result is ProcessResult
         """Handle process finished signal."""
@@ -712,32 +802,42 @@ class MainWindow(QMainWindow):
         if result.success:
             self.log_panel.add_message("info", 
                 f"{stage_name} stage completed successfully in {result.duration_seconds:.1f}s")
-            self.progress_section.set_progress(100, f"{stage_name} completed")
+            self.progress_section.update_progress(100, result.stage.value, f"{stage_name} completed")
             
             # Update results panel
             if result.output_files:
-                self.results_panel.add_results(result.stage.value, result.output_files)
+                for output_file in result.output_files:
+                    if isinstance(output_file, dict):
+                        file_path = output_file.get('output_file', str(output_file))
+                    else:
+                        file_path = str(output_file)
+                    self.results_panel.add_result(
+                        file_path=file_path,
+                        result_type=result.stage.value,
+                        status="success",
+                        message=f"{result.stage.value.capitalize()} completed successfully"
+                    )
             
             # Check if we need to run next stage
-            self._check_next_stage(result.stage)
+            self._check_next_stage(result.stage, result)
         else:
             error_msg = result.error_message or f"Process failed with exit code {result.exit_code}"
             self.log_panel.add_message("error", f"{stage_name} stage failed: {error_msg}")
-            self.progress_section.set_error(f"{stage_name} failed")
+            self.progress_section.stop_processing(success=False, message=f"{stage_name} failed")
             self._set_running_state(False)
     
     def _on_process_failed(self, stage: Stage, error_message: str) -> None:
         """Handle process failed signal."""
         stage_name = stage.value.capitalize()
         self.log_panel.add_message("error", f"{stage_name} stage failed: {error_message}")
-        self.progress_section.set_error(f"{stage_name} failed")
+        self.progress_section.stop_processing(success=False, message=f"{stage_name} failed")
         self._set_running_state(False)
     
     def _on_process_cancelled(self, stage: Stage) -> None:
         """Handle process cancelled signal."""
         stage_name = stage.value.capitalize()
         self.log_panel.add_message("info", f"{stage_name} stage cancelled")
-        self.progress_section.set_cancelled(f"{stage_name} cancelled")
+        self.progress_section.stop_processing(success=False, message=f"{stage_name} cancelled")
         self._set_running_state(False)
     
     def _on_info_received(self, stage: Stage, message: str) -> None:
@@ -746,7 +846,7 @@ class MainWindow(QMainWindow):
     
     def _on_progress_updated(self, stage: Stage, progress: int, message: str) -> None:
         """Handle progress update from process."""
-        self.progress_section.set_progress(progress, message)
+        self.progress_section.update_progress(progress, stage.value, message)
     
     def _on_warning_received(self, stage: Stage, message: str) -> None:
         """Handle warning message from process."""
@@ -760,7 +860,17 @@ class MainWindow(QMainWindow):
         """Handle result data from process."""
         # Extract useful information from result data
         if 'outputs' in data:
-            self.results_panel.add_results(stage.value, data['outputs'])
+            for output_file in data['outputs']:
+                if isinstance(output_file, dict):
+                    file_path = output_file.get('output_file', str(output_file))
+                else:
+                    file_path = str(output_file)
+                self.results_panel.add_result(
+                    file_path=file_path,
+                    result_type=stage.value,
+                    status="success",
+                    message=f"{stage.value.capitalize()} result"
+                )
         
         # Log summary information
         if 'files_processed' in data:
@@ -769,16 +879,28 @@ class MainWindow(QMainWindow):
             self.log_panel.add_message("info", 
                 f"Processed {files_processed} files, {files_successful} successful")
     
-    def _check_next_stage(self, completed_stage: Stage) -> None:
+    def _check_next_stage(self, completed_stage: Stage, result=None) -> None:
         """Check if we need to run the next stage in the pipeline."""
         stages = self.stage_toggles.get_enabled_stages()
         
         # Determine next stage to run
         if completed_stage == Stage.EXTRACT and stages.get('translate', False):
-            self._run_translate_stage()
+            # Check if extraction produced any output files
+            if result and hasattr(result, 'output_files') and result.output_files:
+                self._run_translate_stage()
+            else:
+                self.log_panel.add_message("warning", "Skipping translation stage - no subtitle files were extracted")
+                # Check if sync stage should run
+                if stages.get('sync', False):
+                    self._run_sync_stage()
+                else:
+                    self.log_panel.add_message("info", "Processing pipeline completed")
+                    self.progress_section.stop_processing(success=True, message="Pipeline completed with warnings")
+                    self._set_running_state(False)
         elif completed_stage == Stage.TRANSLATE and stages.get('sync', False):
             self._run_sync_stage()
         else:
             # Pipeline complete
             self.log_panel.add_message("info", "Processing pipeline completed")
+            self.progress_section.stop_processing(success=True, message="Pipeline completed successfully")
             self._set_running_state(False)

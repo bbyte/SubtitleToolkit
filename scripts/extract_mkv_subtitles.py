@@ -151,14 +151,68 @@ def get_subtitle_tracks(mkv_file):
 
 def find_subtitle_track(tracks, language="eng"):
     """Find subtitle track with specified language."""
+    
+    # Create language variants for better matching
+    language_variants = []
+    if language.lower() == "eng" or language.lower() == "en":
+        language_variants = ["eng", "en", "english", "en-us", "en-gb"]
+    elif language.lower() == "es" or language.lower() == "spa":
+        language_variants = ["es", "spa", "spanish", "es-es", "es-mx"]
+    elif language.lower() == "fr" or language.lower() == "fra":
+        language_variants = ["fr", "fra", "french", "fr-fr"]
+    elif language.lower() == "de" or language.lower() == "ger":
+        language_variants = ["de", "ger", "german", "de-de"]
+    elif language.lower() == "it" or language.lower() == "ita":
+        language_variants = ["it", "ita", "italian", "it-it"]
+    elif language.lower() == "pt" or language.lower() == "por":
+        language_variants = ["pt", "por", "portuguese", "pt-br", "pt-pt"]
+    elif language.lower() == "ru" or language.lower() == "rus":
+        language_variants = ["ru", "rus", "russian", "ru-ru"]
+    elif language.lower() == "ja" or language.lower() == "jpn":
+        language_variants = ["ja", "jpn", "japanese", "ja-jp"]
+    elif language.lower() == "ko" or language.lower() == "kor":
+        language_variants = ["ko", "kor", "korean", "ko-kr"]
+    elif language.lower() == "zh" or language.lower() == "chi":
+        language_variants = ["zh", "chi", "chinese", "zh-cn", "zh-tw", "cmn", "zho"]
+    else:
+        # For other languages, try common variations
+        language_variants = [language.lower(), language[:2].lower(), language[:3].lower()]
+    
+    # First pass: exact matches in language tags
     for i, track in enumerate(tracks):
         tags = track.get("tags", {})
-        # Check language in tags
-        if tags.get("language", "").lower() == language.lower():
+        track_language = tags.get("language", "").lower()
+        
+        if track_language in language_variants:
+            info_msg = f"Found subtitle track with language code: {track_language}"
+            emit_jsonl("info", info_msg, data={"track_index": track["index"], "language": track_language})
+            print_colored(f"  {Colors.GREEN}✓ {info_msg}{Colors.ENDC}")
             return track["index"]
-        # Also check title for language info
-        if language.lower() in tags.get("title", "").lower():
-            return track["index"]
+    
+    # Second pass: check titles for language info
+    for i, track in enumerate(tracks):
+        tags = track.get("tags", {})
+        title = tags.get("title", "").lower()
+        
+        for variant in language_variants:
+            if variant in title:
+                info_msg = f"Found subtitle track with language in title: {title}"
+                emit_jsonl("info", info_msg, data={"track_index": track["index"], "title": title})
+                print_colored(f"  {Colors.GREEN}✓ {info_msg}{Colors.ENDC}")
+                return track["index"]
+    
+    # Third pass: log all available subtitle tracks for debugging
+    debug_msg = "Available subtitle tracks:"
+    emit_jsonl("info", debug_msg)
+    print_colored(f"  {Colors.CYAN}📋 {debug_msg}{Colors.ENDC}")
+    
+    for i, track in enumerate(tracks):
+        tags = track.get("tags", {})
+        track_language = tags.get("language", "N/A")
+        track_title = tags.get("title", "N/A")
+        track_info = f"  Track {track['index']}: language='{track_language}', title='{track_title}'"
+        emit_jsonl("info", track_info, data={"track_index": track["index"], "language": track_language, "title": track_title})
+        print_colored(f"    {Colors.DIM}{track_info}{Colors.ENDC}")
     
     # If no language match found and there's only one subtitle track, use it
     if len(tracks) == 1:
@@ -280,10 +334,12 @@ def main():
     global jsonl_mode
     
     parser = argparse.ArgumentParser(description="Extract subtitles from MKV files")
-    parser.add_argument("directory", nargs="?", default=".", 
-                        help="Directory containing MKV files (default: current directory)")
+    parser.add_argument("path", nargs="?", default=".", 
+                        help="Directory containing MKV files or path to single MKV file (default: current directory)")
     parser.add_argument("-l", "--language", default="eng",
                         help="Language code for subtitle track (default: eng)")
+    parser.add_argument("-o", "--output", default=None,
+                        help="Output directory for extracted subtitles (default: same as input)")
     parser.add_argument("--jsonl", action="store_true",
                         help="Output structured JSONL events to stdout")
     
@@ -295,35 +351,56 @@ def main():
     # Print banner
     print_banner()
     
-    # Validate directory
-    directory = Path(args.directory)
-    if not directory.exists():
-        error_msg = f"Directory '{directory}' does not exist"
-        emit_jsonl("error", error_msg, data={"directory": str(directory)})
+    # Validate input path (can be directory or single MKV file)
+    input_path = Path(args.path)
+    if not input_path.exists():
+        error_msg = f"Path '{input_path}' does not exist"
+        emit_jsonl("error", error_msg, data={"path": str(input_path)})
         print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
         sys.exit(1)
     
-    if not directory.is_dir():
-        error_msg = f"'{directory}' is not a directory"
-        emit_jsonl("error", error_msg, data={"directory": str(directory)})
+    # Determine if processing single file or directory
+    if input_path.is_file():
+        # Single file mode
+        if not input_path.suffix.lower() == '.mkv':
+            error_msg = f"Single file input must be an MKV file, got: {input_path.suffix}"
+            emit_jsonl("error", error_msg, data={"path": str(input_path)})
+            print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
+            sys.exit(1)
+        
+        print_colored(f"\n{Colors.CYAN}🎯 Processing single file:{Colors.ENDC} {Colors.BOLD}{input_path.name}{Colors.ENDC}")
+        mkv_files = [input_path]
+        
+    elif input_path.is_dir():
+        # Directory mode
+        print_colored(f"\n{Colors.CYAN}🔍 Scanning directory:{Colors.ENDC} {Colors.BOLD}{input_path}{Colors.ENDC}")
+        mkv_files = get_mkv_files(input_path)
+        
+    else:
+        error_msg = f"Path must be either a directory or an MKV file: {input_path}"
+        emit_jsonl("error", error_msg, data={"path": str(input_path)})
         print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
         sys.exit(1)
-    
-    # Get MKV files
-    print_colored(f"\n{Colors.CYAN}🔍 Scanning directory:{Colors.ENDC} {Colors.BOLD}{directory}{Colors.ENDC}")
-    mkv_files = get_mkv_files(directory)
     
     if not mkv_files:
-        warning_msg = f"No MKV files found in {directory}"
-        emit_jsonl("warning", warning_msg, data={"directory": str(directory)})
+        if input_path.is_dir():
+            warning_msg = f"No MKV files found in {input_path}"
+        else:
+            warning_msg = f"File is not a valid MKV: {input_path}"
+        emit_jsonl("warning", warning_msg, data={"path": str(input_path)})
         print_colored(f"{Colors.YELLOW}⚠ {warning_msg}{Colors.ENDC}")
         return
     
-    info_msg = f"Found {len(mkv_files)} MKV file(s) in {directory}"
+    if input_path.is_dir():
+        info_msg = f"Found {len(mkv_files)} MKV file(s) in {input_path}"
+    else:
+        info_msg = f"Processing single MKV file: {input_path.name}"
+    
     emit_jsonl("info", info_msg, data={
-        "directory": str(directory),
+        "path": str(input_path),
         "file_count": len(mkv_files),
-        "language": args.language
+        "language": args.language,
+        "mode": "directory" if input_path.is_dir() else "single_file"
     })
     
     print_colored(f"{Colors.GREEN}✓ Found {len(mkv_files)} MKV file(s){Colors.ENDC}")
@@ -379,7 +456,13 @@ def main():
             continue
         
         # Create output filename
-        output_file = mkv_file.with_suffix(".srt")
+        if args.output:
+            # Use specified output directory
+            output_dir = Path(args.output)
+            output_file = output_dir / f"{mkv_file.stem}.srt"
+        else:
+            # Use same directory as input
+            output_file = mkv_file.with_suffix(".srt")
         
         # Extract subtitle
         info_msg = f"Extracting track {track_index} from {mkv_file.name} to {output_file.name}"
@@ -414,7 +497,7 @@ def main():
         "outputs": outputs,
         "skipped_files": skipped_files,
         "language": args.language,
-        "directory": str(directory)
+        "path": str(input_path)
     })
     
     # Print summary (only in non-JSONL mode)
