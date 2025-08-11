@@ -194,6 +194,90 @@ Jetzt neu starten?</translation>
         <source>Select Project Folder</source>
         <translation>Projektordner auswählen</translation>
     </message>
+    <message>
+        <source>Select Single File</source>
+        <translation>Einzelne Datei auswählen</translation>
+    </message>
+    <message>
+        <source>Directory</source>
+        <translation>Verzeichnis</translation>
+    </message>
+    <message>
+        <source>Single File</source>
+        <translation>Einzelne Datei</translation>
+    </message>
+    <message>
+        <source>Process all files in a directory</source>
+        <translation>Alle Dateien in einem Verzeichnis verarbeiten</translation>
+    </message>
+    <message>
+        <source>Process a single MKV or SRT file</source>
+        <translation>Eine einzelne MKV- oder SRT-Datei verarbeiten</translation>
+    </message>
+    <message>
+        <source>Select a directory containing video/subtitle files...</source>
+        <translation>Verzeichnis mit Video-/Untertiteldateien auswählen...</translation>
+    </message>
+    <message>
+        <source>Select an MKV or SRT file to process...</source>
+        <translation>MKV- oder SRT-Datei zur Verarbeitung auswählen...</translation>
+    </message>
+    <message>
+        <source>Browse...</source>
+        <translation>Durchsuchen...</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Leeren</translation>
+    </message>
+    <message>
+        <source>Select File</source>
+        <translation>Datei auswählen</translation>
+    </message>
+    <message>
+        <source>Video and Subtitle Files (*.mkv *.mp4 *.avi *.srt);;MKV Files (*.mkv);;SRT Files (*.srt);;All Files (*)</source>
+        <translation>Video- und Untertiteldateien (*.mkv *.mp4 *.avi *.srt);;MKV-Dateien (*.mkv);;SRT-Dateien (*.srt);;Alle Dateien (*)</translation>
+    </message>
+    <message>
+        <source>Directory does not exist: {0}</source>
+        <translation>Verzeichnis existiert nicht: {0}</translation>
+    </message>
+    <message>
+        <source>Path is not a directory: {0}</source>
+        <translation>Pfad ist kein Verzeichnis: {0}</translation>
+    </message>
+    <message>
+        <source>File does not exist: {0}</source>
+        <translation>Datei existiert nicht: {0}</translation>
+    </message>
+    <message>
+        <source>Path is not a file: {0}</source>
+        <translation>Pfad ist keine Datei: {0}</translation>
+    </message>
+    <message>
+        <source>File type may not be supported: {0}</source>
+        <translation>Dateityp wird möglicherweise nicht unterstützt: {0}</translation>
+    </message>
+    <message>
+        <source>MKV video file ({0}) - can extract subtitles</source>
+        <translation>MKV-Videodatei ({0}) - kann Untertitel extrahieren</translation>
+    </message>
+    <message>
+        <source>{0} video file ({1}) - limited processing options</source>
+        <translation>{0}-Videodatei ({1}) - begrenzte Verarbeitungsoptionen</translation>
+    </message>
+    <message>
+        <source>SRT subtitle file ({0}) - can translate or sync names</source>
+        <translation>SRT-Untertiteldatei ({0}) - kann übersetzen oder Namen synchronisieren</translation>
+    </message>
+    <message>
+        <source>File selected ({0}) - type: {1}</source>
+        <translation>Datei ausgewählt ({0}) - Typ: {1}</translation>
+    </message>
+    <message>
+        <source>Error analyzing file: {0}</source>
+        <translation>Fehler beim Analysieren der Datei: {0}</translation>
+    </message>
 </context>
 <context>
     <name>StageConfigurators</name>

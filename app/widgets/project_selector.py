@@ -8,7 +8,7 @@ that contains the video/subtitle files to be processed.
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFileDialog, QGroupBox, QFrame
+    QFileDialog, QGroupBox, QFrame, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
@@ -16,22 +16,25 @@ from PySide6.QtGui import QFont
 
 class ProjectSelector(QFrame):
     """
-    Widget for selecting the project directory.
+    Widget for selecting either a project directory or a single file.
     
     Provides a clean interface with:
-    - Directory path display
-    - Browse button for folder selection
+    - Mode selection (Directory vs Single File)
+    - Path display with appropriate placeholders
+    - Browse button for folder/file selection
     - Visual feedback for valid/invalid paths
     """
     
     # Signals
     directory_selected = Signal(str)  # Emitted when a valid directory is selected
-    directory_cleared = Signal()     # Emitted when directory is cleared
+    file_selected = Signal(str)      # Emitted when a valid file is selected
+    selection_cleared = Signal()     # Emitted when selection is cleared
     
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
         
-        self._selected_directory = ""
+        self._selected_path = ""
+        self._is_directory_mode = True  # Default to directory mode
         self._setup_ui()
         self._connect_signals()
     
@@ -46,32 +49,55 @@ class ProjectSelector(QFrame):
         layout.setSpacing(10)
         
         # Title
-        title_label = QLabel(self.tr("Select Project Folder"))
+        self.title_label = QLabel(self.tr("Select Project Folder"))
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(12)
-        title_label.setFont(title_font)
-        layout.addWidget(title_label)
+        self.title_label.setFont(title_font)
+        layout.addWidget(self.title_label)
+        
+        # Mode selection
+        mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(20)
+        
+        # Directory mode radio button
+        self.directory_radio = QRadioButton(self.tr("Directory"))
+        self.directory_radio.setChecked(True)  # Default to directory mode
+        self.directory_radio.setToolTip(self.tr("Process all files in a directory"))
+        mode_layout.addWidget(self.directory_radio)
+        
+        # Single file mode radio button  
+        self.file_radio = QRadioButton(self.tr("Single File"))
+        self.file_radio.setToolTip(self.tr("Process a single MKV or SRT file"))
+        mode_layout.addWidget(self.file_radio)
+        
+        # Button group to make radio buttons mutually exclusive
+        self.mode_group = QButtonGroup()
+        self.mode_group.addButton(self.directory_radio, 0)  # Directory mode = 0
+        self.mode_group.addButton(self.file_radio, 1)       # File mode = 1
+        
+        mode_layout.addStretch()
+        layout.addLayout(mode_layout)
         
         # Directory selection layout
         dir_layout = QHBoxLayout()
         dir_layout.setSpacing(10)
         
-        # Directory path input
+        # Path input
         self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("Select a directory containing video/subtitle files...")
+        self.path_edit.setPlaceholderText(self.tr("Select a directory containing video/subtitle files..."))
         self.path_edit.setReadOnly(True)
         self.path_edit.setMinimumHeight(35)
         dir_layout.addWidget(self.path_edit)
         
         # Browse button
-        self.browse_button = QPushButton("Browse...")
+        self.browse_button = QPushButton(self.tr("Browse..."))
         self.browse_button.setMinimumHeight(35)
         self.browse_button.setMinimumWidth(100)
         dir_layout.addWidget(self.browse_button)
         
         # Clear button
-        self.clear_button = QPushButton("Clear")
+        self.clear_button = QPushButton(self.tr("Clear"))
         self.clear_button.setMinimumHeight(35)
         self.clear_button.setMinimumWidth(80)
         self.clear_button.setEnabled(False)
@@ -87,11 +113,37 @@ class ProjectSelector(QFrame):
     
     def _connect_signals(self) -> None:
         """Connect internal signals and slots."""
-        self.browse_button.clicked.connect(self.select_directory)
-        self.clear_button.clicked.connect(self.clear_directory)
+        self.browse_button.clicked.connect(self._browse_path)
+        self.clear_button.clicked.connect(self._clear_selection)
         self.path_edit.textChanged.connect(self._on_path_changed)
+        self.mode_group.buttonToggled.connect(self._on_mode_changed)
     
-    def select_directory(self) -> None:
+    def _on_mode_changed(self, button, checked: bool) -> None:
+        """Handle mode change between directory and file selection."""
+        if not checked:  # Only respond to button being checked, not unchecked
+            return
+            
+        self._is_directory_mode = (button == self.directory_radio)
+        
+        # Clear current selection when switching modes
+        self._clear_selection()
+        
+        # Update UI elements based on mode
+        if self._is_directory_mode:
+            self.title_label.setText(self.tr("Select Project Folder"))
+            self.path_edit.setPlaceholderText(self.tr("Select a directory containing video/subtitle files..."))
+        else:
+            self.title_label.setText(self.tr("Select Single File"))
+            self.path_edit.setPlaceholderText(self.tr("Select an MKV or SRT file to process..."))
+    
+    def _browse_path(self) -> None:
+        """Open file dialog to select directory or file based on current mode."""
+        if self._is_directory_mode:
+            self._select_directory()
+        else:
+            self._select_file()
+    
+    def _select_directory(self) -> None:
         """Open file dialog to select project directory."""
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.Directory)
@@ -99,48 +151,169 @@ class ProjectSelector(QFrame):
         dialog.setWindowTitle(self.tr("Select Project Folder"))
         
         # Set starting directory
-        if self._selected_directory and Path(self._selected_directory).exists():
-            dialog.setDirectory(self._selected_directory)
+        if self._selected_path and Path(self._selected_path).exists():
+            if Path(self._selected_path).is_dir():
+                dialog.setDirectory(self._selected_path)
+            else:
+                dialog.setDirectory(str(Path(self._selected_path).parent))
         else:
             dialog.setDirectory(str(Path.home()))
         
         if dialog.exec():
             selected_dirs = dialog.selectedFiles()
             if selected_dirs:
-                self.set_directory(selected_dirs[0])
+                self._set_directory(selected_dirs[0])
     
-    def set_directory(self, directory: str) -> None:
+    def _select_file(self) -> None:
+        """Open file dialog to select single file."""
+        dialog = QFileDialog(self)
+        dialog.setFileMode(QFileDialog.ExistingFile)
+        dialog.setWindowTitle(self.tr("Select File"))
+        
+        # Set file filters for supported formats
+        dialog.setNameFilter(self.tr("Video and Subtitle Files (*.mkv *.mp4 *.avi *.srt);;MKV Files (*.mkv);;SRT Files (*.srt);;All Files (*)"))
+        
+        # Set starting directory
+        if self._selected_path and Path(self._selected_path).exists():
+            if Path(self._selected_path).is_file():
+                dialog.setDirectory(str(Path(self._selected_path).parent))
+                dialog.selectFile(str(Path(self._selected_path).name))
+            else:
+                dialog.setDirectory(self._selected_path)
+        else:
+            dialog.setDirectory(str(Path.home()))
+        
+        if dialog.exec():
+            selected_files = dialog.selectedFiles()
+            if selected_files:
+                self._set_file(selected_files[0])
+    
+    def _set_directory(self, directory: str) -> None:
         """Set the selected directory and validate it."""
         directory_path = Path(directory)
         
         if not directory_path.exists():
-            self._show_status("error", f"Directory does not exist: {directory}")
+            self._show_status("error", self.tr("Directory does not exist: {0}").format(directory))
             return
         
         if not directory_path.is_dir():
-            self._show_status("error", f"Path is not a directory: {directory}")
+            self._show_status("error", self.tr("Path is not a directory: {0}").format(directory))
             return
         
         # Update internal state
-        self._selected_directory = str(directory_path.resolve())
-        self.path_edit.setText(self._selected_directory)
+        self._selected_path = str(directory_path.resolve())
+        self.path_edit.setText(self._selected_path)
         self.clear_button.setEnabled(True)
         
         # Analyze directory contents
         self._analyze_directory(directory_path)
         
         # Emit signal
-        self.directory_selected.emit(self._selected_directory)
+        self.directory_selected.emit(self._selected_path)
+    
+    def _set_file(self, file_path: str) -> None:
+        """Set the selected file and validate it."""
+        file_path_obj = Path(file_path)
+        
+        if not file_path_obj.exists():
+            self._show_status("error", self.tr("File does not exist: {0}").format(file_path))
+            return
+        
+        if not file_path_obj.is_file():
+            self._show_status("error", self.tr("Path is not a file: {0}").format(file_path))
+            return
+        
+        # Check if file has supported extension
+        supported_extensions = {'.mkv', '.mp4', '.avi', '.srt'}
+        if file_path_obj.suffix.lower() not in supported_extensions:
+            self._show_status("warning", self.tr("File type may not be supported: {0}").format(file_path_obj.suffix))
+        
+        # Update internal state
+        self._selected_path = str(file_path_obj.resolve())
+        self.path_edit.setText(self._selected_path)
+        self.clear_button.setEnabled(True)
+        
+        # Analyze single file
+        self._analyze_file(file_path_obj)
+        
+        # Emit signal
+        self.file_selected.emit(self._selected_path)
+    
+    def _analyze_file(self, file_path: Path) -> None:
+        """Analyze the selected single file and show relevant information."""
+        try:
+            file_ext = file_path.suffix.lower()
+            file_size = file_path.stat().st_size
+            
+            # Format file size
+            if file_size < 1024 * 1024:  # Less than 1MB
+                size_str = f"{file_size // 1024} KB"
+            elif file_size < 1024 * 1024 * 1024:  # Less than 1GB
+                size_str = f"{file_size // (1024 * 1024)} MB"
+            else:
+                size_str = f"{file_size // (1024 * 1024 * 1024):.1f} GB"
+            
+            # Create status message based on file type
+            if file_ext == '.mkv':
+                status_message = self.tr("MKV video file ({0}) - can extract subtitles").format(size_str)
+                self._show_status("info", status_message)
+            elif file_ext in ['.mp4', '.avi']:
+                status_message = self.tr("{0} video file ({1}) - limited processing options").format(file_ext.upper(), size_str)
+                self._show_status("warning", status_message)
+            elif file_ext == '.srt':
+                status_message = self.tr("SRT subtitle file ({0}) - can translate or sync names").format(size_str)
+                self._show_status("info", status_message)
+            else:
+                status_message = self.tr("File selected ({0}) - type: {1}").format(size_str, file_ext)
+                self._show_status("info", status_message)
+                
+        except Exception as e:
+            self._show_status("error", self.tr("Error analyzing file: {0}").format(str(e)))
+    
+    # Public interface methods
+    def get_selected_path(self) -> str:
+        """Get the currently selected path (directory or file)."""
+        return self._selected_path
+    
+    def is_directory_mode(self) -> bool:
+        """Check if currently in directory selection mode."""
+        return self._is_directory_mode
+    
+    def is_file_mode(self) -> bool:
+        """Check if currently in file selection mode."""
+        return not self._is_directory_mode
+    
+    def set_mode(self, directory_mode: bool) -> None:
+        """Set the selection mode programmatically."""
+        if directory_mode:
+            self.directory_radio.setChecked(True)
+        else:
+            self.file_radio.setChecked(True)
+    
+    # Backwards compatibility properties
+    @property
+    def selected_directory(self) -> str:
+        """Get selected directory (backwards compatibility)."""
+        return self._selected_path if self._is_directory_mode else ""
+    
+    def select_directory(self) -> None:
+        """Public method to open directory selection dialog (backwards compatibility)."""
+        self.set_mode(True)  # Switch to directory mode
+        self._select_directory()
     
     def clear_directory(self) -> None:
-        """Clear the selected directory."""
-        self._selected_directory = ""
+        """Clear selection (backwards compatibility)."""
+        self._clear_selection()
+    
+    def _clear_selection(self) -> None:
+        """Clear the selected path."""
+        self._selected_path = ""
         self.path_edit.clear()
         self.clear_button.setEnabled(False)
         self.status_label.hide()
         
         # Emit signal
-        self.directory_cleared.emit()
+        self.selection_cleared.emit()
     
     def _on_path_changed(self, text: str) -> None:
         """Handle manual path changes (though read-only, this handles programmatic changes)."""

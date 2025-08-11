@@ -194,6 +194,90 @@ Restart now?</source>
         <source>Select Project Folder</source>
         <translation>Избери папка на проекта</translation>
     </message>
+    <message>
+        <source>Select Single File</source>
+        <translation>Избери единичен файл</translation>
+    </message>
+    <message>
+        <source>Directory</source>
+        <translation>Папка</translation>
+    </message>
+    <message>
+        <source>Single File</source>
+        <translation>Единичен файл</translation>
+    </message>
+    <message>
+        <source>Process all files in a directory</source>
+        <translation>Обработи всички файлове в папката</translation>
+    </message>
+    <message>
+        <source>Process a single MKV or SRT file</source>
+        <translation>Обработи единичен MKV или SRT файл</translation>
+    </message>
+    <message>
+        <source>Select a directory containing video/subtitle files...</source>
+        <translation>Избери папка съдържаща видео/субтитри файлове...</translation>
+    </message>
+    <message>
+        <source>Select an MKV or SRT file to process...</source>
+        <translation>Избери MKV или SRT файл за обработка...</translation>
+    </message>
+    <message>
+        <source>Browse...</source>
+        <translation>Преглед...</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Изчисти</translation>
+    </message>
+    <message>
+        <source>Select File</source>
+        <translation>Избери файл</translation>
+    </message>
+    <message>
+        <source>Video and Subtitle Files (*.mkv *.mp4 *.avi *.srt);;MKV Files (*.mkv);;SRT Files (*.srt);;All Files (*)</source>
+        <translation>Видео и субтитри файлове (*.mkv *.mp4 *.avi *.srt);;MKV файлове (*.mkv);;SRT файлове (*.srt);;Всички файлове (*)</translation>
+    </message>
+    <message>
+        <source>Directory does not exist: {0}</source>
+        <translation>Папката не съществува: {0}</translation>
+    </message>
+    <message>
+        <source>Path is not a directory: {0}</source>
+        <translation>Пътят не е папка: {0}</translation>
+    </message>
+    <message>
+        <source>File does not exist: {0}</source>
+        <translation>Файлът не съществува: {0}</translation>
+    </message>
+    <message>
+        <source>Path is not a file: {0}</source>
+        <translation>Пътят не е файл: {0}</translation>
+    </message>
+    <message>
+        <source>File type may not be supported: {0}</source>
+        <translation>Типът файл може да не се поддържа: {0}</translation>
+    </message>
+    <message>
+        <source>MKV video file ({0}) - can extract subtitles</source>
+        <translation>MKV видео файл ({0}) - може да извлече субтитри</translation>
+    </message>
+    <message>
+        <source>{0} video file ({1}) - limited processing options</source>
+        <translation>{0} видео файл ({1}) - ограничени опции за обработка</translation>
+    </message>
+    <message>
+        <source>SRT subtitle file ({0}) - can translate or sync names</source>
+        <translation>SRT субтитри файл ({0}) - може да преведе или синхронизира имена</translation>
+    </message>
+    <message>
+        <source>File selected ({0}) - type: {1}</source>
+        <translation>Избран файл ({0}) - тип: {1}</translation>
+    </message>
+    <message>
+        <source>Error analyzing file: {0}</source>
+        <translation>Грешка при анализ на файла: {0}</translation>
+    </message>
 </context>
 <context>
     <name>StageConfigurators</name>
