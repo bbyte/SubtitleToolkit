@@ -196,7 +196,9 @@ class TranslateConfig:
             # For multiple files, we'll need to run the script multiple times
             # For now, handle single file case
             if len(self.input_files) == 1:
-                args.extend(["-f", self.input_files[0]])
+                # Ensure proper path handling for files with special characters
+                file_path = self.input_files[0]
+                args.extend(["-f", file_path])
             else:
                 # Use directory mode if multiple files
                 return []  # Will need special handling

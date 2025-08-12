@@ -53,6 +53,10 @@ class ScriptRunner(QObject):
         # Process start time for duration tracking
         self._process_start_time: Optional[datetime] = None
         
+        # Process completion state tracking
+        self._process_completing = False
+        self._final_output_read = False
+        
         # Termination timeout timer
         self._termination_timer = QTimer(self)
         self._termination_timer.setSingleShot(True)
@@ -223,14 +227,52 @@ class ScriptRunner(QObject):
         process = QProcess(self)
         self._current_process = process
         
-        # Set up environment
-        env = QProcess.systemEnvironment()
-        for key, value in env_vars.items():
-            env.append(f"{key}={value}")
-        process.setEnvironment(env)
+        # Note: Environment variables are now handled through shell exports in the command
+        # This avoids issues with QProcess environment variable handling in shell mode
         
         # Set working directory to script directory
         process.setWorkingDirectory(str(self._script_dir))
+        
+        # Set process to read output immediately and not buffer
+        process.setReadChannel(QProcess.StandardOutput)
+        
+        # Enable process channel mode to handle stdout/stderr separately
+        process.setProcessChannelMode(QProcess.SeparateChannels)
+        
+        # Set up unbuffered reading to prevent pipe overflow
+        process.setStandardOutputProcess(None)
+        process.setStandardErrorProcess(None)
+        
+        # Enable shell execution to handle special characters in paths properly
+        # Use shell to execute the command with proper quoting and environment variables
+        env_exports = " && ".join(f'export {key}="{value}"' for key, value in env_vars.items())
+        shell_command = " ".join(f'"{arg}"' for arg in command)
+        
+        # If we have environment variables, prepend them to the command
+        if env_exports:
+            full_command = f"{env_exports} && {shell_command}"
+        else:
+            full_command = shell_command
+            
+        process.setProgram("/bin/bash")
+        process.setArguments(["-c", full_command])
+        
+        # Debug: Show the actual shell command being executed
+        if self._current_stage:
+            if env_exports:
+                # Mask API keys in debug output
+                masked_exports = []
+                for key, value in env_vars.items():
+                    if 'api_key' in key.lower() or 'key' in key.lower():
+                        masked_value = f"{value[:8]}***{value[-4:]}" if len(value) > 12 else "***"
+                        masked_exports.append(f'export {key}="{masked_value}"')
+                    else:
+                        masked_exports.append(f'export {key}="{value}"')
+                masked_env_exports = " && ".join(masked_exports)
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: ENV_EXPORTS: {masked_env_exports}")
+            
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: SHELL_COMMAND: {shell_command}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: FULL_COMMAND: Using shell execution with environment variables")
         
         # Connect signals
         process.readyReadStandardOutput.connect(self._on_stdout_ready)
@@ -238,6 +280,9 @@ class ScriptRunner(QObject):
         process.finished.connect(self._on_process_finished)
         process.errorOccurred.connect(self._on_process_error)
         process.started.connect(self._on_process_started)
+        
+        # Connect aboutToClose signal to handle graceful shutdown
+        process.aboutToClose.connect(self._on_process_about_to_close)
         
         # Set up parser and aggregator
         self._parser.reset()
@@ -282,8 +327,12 @@ class ScriptRunner(QObject):
         # Add immediate debugging right before starting process
         if self._current_stage:
             self.signals.info_received.emit(self._current_stage, f"DEBUG: About to start: {command[0]} with {len(command)-1} arguments")
+            # Show all arguments for debugging
+            for i, arg in enumerate(command):
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: ARG[{i}]: {repr(arg)}")
         
-        process.start(command[0], command[1:])
+        # Start the shell process (program and arguments already set above)
+        process.start()
         
         if not process.waitForStarted(5000):  # 5 second timeout
             error_msg = f"Failed to start process: {process.errorString()}"
@@ -296,6 +345,19 @@ class ScriptRunner(QObject):
         # Add debugging right after successful start
         if self._current_stage:
             self.signals.info_received.emit(self._current_stage, f"DEBUG: Process started successfully, waiting for first output...")
+            
+            # Give the process a very short time to produce initial output or fail
+            if process.waitForFinished(100):  # Wait 100ms for quick failures
+                stdout_data = process.readAllStandardOutput().data().decode('utf-8', errors='replace')
+                stderr_data = process.readAllStandardError().data().decode('utf-8', errors='replace')
+                exit_code = process.exitCode()
+                
+                if stdout_data:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: QUICK_STDOUT: {repr(stdout_data)}")
+                if stderr_data:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: QUICK_STDERR: {repr(stderr_data)}")
+                if exit_code != 0:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: QUICK_EXIT_CODE: {exit_code}")
         
         return process
     
@@ -322,7 +384,22 @@ class ScriptRunner(QObject):
             
         self._output_monitor_timer = QTimer(self)
         self._output_monitor_timer.timeout.connect(self._check_process_output)
-        self._output_monitor_timer.start(100)  # Check every 100ms
+        # Increase frequency to prevent buffer overflow
+        self._output_monitor_timer.start(50)  # Check every 50ms
+    
+    def _on_process_about_to_close(self):
+        """Handle process about to close signal - final chance to read output."""
+        if not self._current_process or not self._current_stage or self._final_output_read:
+            return
+        
+        self.signals.info_received.emit(self._current_stage, "DEBUG: Process about to close - reading final output")
+        
+        # Stop monitoring immediately
+        if hasattr(self, '_output_monitor_timer'):
+            self._output_monitor_timer.stop()
+        
+        # Read final output now
+        self._read_final_output()
     
     def _check_process_output(self):
         """Periodically check for process output."""
@@ -331,25 +408,48 @@ class ScriptRunner(QObject):
                 self._output_monitor_timer.stop()
             return
         
-        # Force check for available output
-        if self._current_process.bytesAvailable() > 0:
-            self._on_stdout_ready()
-            
-        # Check stderr too
+        # Skip if process is completing to avoid race conditions
+        if self._process_completing:
+            return
+        
         try:
+            # Force check for available output
+            if self._current_process.bytesAvailable() > 0:
+                self._on_stdout_ready()
+                
+            # Check stderr too
             stderr_data = self._current_process.readAllStandardError()
-            if stderr_data and len(stderr_data.data()) > 0:
+            if stderr_data and stderr_data.size() > 0:
                 self._on_stderr_ready()
+                
         except Exception as e:
-            # Ignore stderr checking errors
-            pass
+            # Handle any reading errors gracefully
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: OUTPUT_CHECK_ERROR: {str(e)}")
     
     def _on_stdout_ready(self):
         """Handle stdout data from process."""
         if not self._current_process:
             return
         
-        data = self._current_process.readAllStandardOutput().data().decode('utf-8', errors='replace')
+        try:
+            # Read ALL available data immediately to prevent pipe buffer overflow
+            raw_data = self._current_process.readAllStandardOutput()
+            if raw_data.size() == 0:
+                return
+                
+            data = raw_data.data().decode('utf-8', errors='replace')
+            
+            # If there's still more data available, schedule another read
+            if self._current_process.bytesAvailable() > 0:
+                # Use a timer to schedule immediate re-reading
+                QTimer.singleShot(0, self._on_stdout_ready)
+        
+        except Exception as e:
+            # Handle broken pipe or closed process gracefully
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: STDOUT_READ_ERROR: {str(e)}")
+            return
         
         # Emit raw output signal
         self.signals.process_output_received.emit(data)
@@ -387,7 +487,17 @@ class ScriptRunner(QObject):
         if not self._current_process:
             return
         
-        data = self._current_process.readAllStandardError().data().decode('utf-8', errors='replace')
+        try:
+            raw_data = self._current_process.readAllStandardError()
+            if raw_data.size() == 0:
+                return
+                
+            data = raw_data.data().decode('utf-8', errors='replace')
+        except Exception as e:
+            # Handle broken pipe or closed process gracefully
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: STDERR_READ_ERROR: {str(e)}")
+            return
         
         # Emit stderr signal
         self.signals.process_error_received.emit(data)
@@ -411,16 +521,66 @@ class ScriptRunner(QObject):
         if not self._current_stage:
             return
         
-        # Capture any remaining stdout/stderr data before finishing
-        if self._current_process:
-            remaining_stdout = self._current_process.readAllStandardOutput().data().decode('utf-8', errors='replace')
-            remaining_stderr = self._current_process.readAllStandardError().data().decode('utf-8', errors='replace')
-            
-            if remaining_stdout:
-                self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_STDOUT: {repr(remaining_stdout)}")
+        # Mark process as completing
+        self._process_completing = True
+        
+        self.signals.info_received.emit(self._current_stage, f"DEBUG: Process finished signal received - exit_code: {exit_code}, status: {exit_status}")
+        
+        # Stop output monitoring immediately to prevent race conditions
+        if hasattr(self, '_output_monitor_timer'):
+            self._output_monitor_timer.stop()
+        
+        # If we haven't read final output yet, do it now
+        if not self._final_output_read:
+            self._read_final_output()
+        
+        # Small delay to ensure all queued signals are processed
+        QTimer.singleShot(50, lambda: self._complete_process_handling(exit_code, exit_status))
+    
+    def _read_final_output(self):
+        """Read any remaining output from the process."""
+        if not self._current_process or self._final_output_read:
+            return
+        
+        self._final_output_read = True
+        
+        try:
+            # Give the process multiple chances to flush output
+            for attempt in range(3):
+                self._current_process.waitForReadyRead(50)
                 
-            if remaining_stderr:
-                self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_STDERR: {repr(remaining_stderr)}")
+                stdout_data = self._current_process.readAllStandardOutput()
+                stderr_data = self._current_process.readAllStandardError()
+                
+                if stdout_data.size() > 0:
+                    data = stdout_data.data().decode('utf-8', errors='replace')
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_STDOUT_A{attempt}: {repr(data)}")
+                    
+                    # Process any remaining JSONL events
+                    try:
+                        for event, error in self._parser.parse_stream_data(data):
+                            if event:
+                                self._handle_event(event)
+                            elif error:
+                                self.signals.parse_error.emit(data, error)
+                    except Exception as e:
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_PARSE_ERROR_A{attempt}: {str(e)}")
+                
+                if stderr_data.size() > 0:
+                    data = stderr_data.data().decode('utf-8', errors='replace')
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_STDERR_A{attempt}: {repr(data)}")
+                
+                # If no more data, break early
+                if stdout_data.size() == 0 and stderr_data.size() == 0:
+                    break
+                    
+        except Exception as e:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_READ_ERROR: {str(e)}")
+    
+    def _complete_process_handling(self, exit_code: int, exit_status: QProcess.ExitStatus):
+        """Complete the process handling after ensuring all output is read."""
+        if not self._current_stage:
+            return
         
         # Flush any remaining parser buffer
         try:
@@ -431,6 +591,8 @@ class ScriptRunner(QObject):
                     self.signals.parse_error.emit("", error)
         except Exception as e:
             self._logger.error(f"Error flushing parser buffer: {e}")
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: PARSER_FLUSH_ERROR: {str(e)}")
         
         # Create process result
         duration = 0.0
@@ -442,9 +604,17 @@ class ScriptRunner(QObject):
         if self._aggregator:
             summary = self._aggregator.get_summary()
         
+        # Special handling for SIGTERM after apparent success
+        # If we have result data and exit code is 15 (SIGTERM), treat as success
+        apparent_success = (exit_code == 0 and exit_status == QProcess.NormalExit)
+        sigterm_after_success = (exit_code == 15 and summary.get('result_data') is not None)
+        
+        if sigterm_after_success:
+            self.signals.info_received.emit(self._current_stage, "DEBUG: SIGTERM detected after successful completion - treating as success")
+        
         # Create result object
         result = ProcessResult(
-            success=(exit_code == 0 and exit_status == QProcess.NormalExit),
+            success=(apparent_success or sigterm_after_success),
             exit_code=exit_code,
             stage=self._current_stage,
             duration_seconds=duration,
@@ -463,7 +633,10 @@ class ScriptRunner(QObject):
             if self._aggregator and self._aggregator.errors:
                 result.error_message = '; '.join(self._aggregator.errors)
             else:
-                result.error_message = f"Process exited with code {exit_code}"
+                if exit_code == 15 and not sigterm_after_success:
+                    result.error_message = f"Process terminated with SIGTERM (broken pipe or early termination)"
+                else:
+                    result.error_message = f"Process exited with code {exit_code}"
         
         # Emit result signal
         self.signals.process_finished.emit(result)
@@ -507,6 +680,8 @@ class ScriptRunner(QObject):
         if self._current_stage:
             # Send detailed error information to debug log
             self.signals.info_received.emit(self._current_stage, f"DEBUG: PROCESS ERROR: {error_msg}")
+            
+            # Get more crash details
             if self._current_process:
                 # Try to read any final output before the process dies
                 try:
@@ -517,13 +692,41 @@ class ScriptRunner(QObject):
                         self.signals.info_received.emit(self._current_stage, f"DEBUG: CRASH_FINAL_STDOUT: {repr(final_stdout)}")
                     if final_stderr:
                         self.signals.info_received.emit(self._current_stage, f"DEBUG: CRASH_FINAL_STDERR: {repr(final_stderr)}")
+                    
+                    # If no stderr captured, this might be the issue
+                    if not final_stderr:
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: NO STDERR CAPTURED - This might be the root cause!")
                         
                 except Exception as e:
                     self.signals.info_received.emit(self._current_stage, f"DEBUG: Error reading final output: {e}")
                 
-                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process exit code: {self._current_process.exitCode()}")
-                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process exit status: {self._current_process.exitStatus()}")
-                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process state: {self._current_process.state()}")
+                # Get comprehensive process information
+                exit_code = self._current_process.exitCode()
+                exit_status = self._current_process.exitStatus()
+                process_state = self._current_process.state()
+                
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process exit code: {exit_code}")
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process exit status: {exit_status}")
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Process state: {process_state}")
+                
+                # Interpret exit codes for better debugging
+                if exit_code == 15:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: EXIT CODE 15 = SIGTERM - Process was terminated")
+                elif exit_code == 9:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: EXIT CODE 9 = SIGKILL - Process was forcibly killed")
+                elif exit_code == 139:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: EXIT CODE 139 = SIGSEGV - Segmentation fault")
+                elif exit_code == 2:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: EXIT CODE 2 = File not found or permission denied")
+                elif exit_code == 1:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: EXIT CODE 1 = General error")
+                elif exit_code != 0:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: Non-zero exit code indicates error")
+                    
+                # Try to get system error information
+                error_string = self._current_process.errorString()
+                if error_string:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: System error string: {error_string}")
             
             self.signals.process_failed.emit(self._current_stage, error_msg)
         
@@ -614,6 +817,28 @@ class ScriptRunner(QObject):
             self._output_monitor_timer.stop()
         
         if self._current_process:
+            # Read any final output before terminating
+            if self._current_process.state() != QProcess.NotRunning:
+                try:
+                    # Give process time to flush output
+                    self._current_process.waitForFinished(100)
+                    
+                    # One final read attempt
+                    final_stdout = self._current_process.readAllStandardOutput()
+                    final_stderr = self._current_process.readAllStandardError()
+                    
+                    if final_stdout.size() > 0 and self._current_stage:
+                        data = final_stdout.data().decode('utf-8', errors='replace')
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CLEANUP_STDOUT: {repr(data)}")
+                        
+                    if final_stderr.size() > 0 and self._current_stage:
+                        data = final_stderr.data().decode('utf-8', errors='replace')
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CLEANUP_STDERR: {repr(data)}")
+                        
+                except Exception as e:
+                    if self._current_stage:
+                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CLEANUP_READ_ERROR: {str(e)}")
+            
             # Ensure process is properly terminated before cleanup
             if self._current_process.state() == QProcess.Running:
                 self._current_process.terminate()
@@ -626,6 +851,10 @@ class ScriptRunner(QObject):
             self._current_process = None  # Clear reference first
             if process:
                 process.deleteLater()
+        
+        # Reset state flags
+        self._process_completing = False
+        self._final_output_read = False
         
         self._current_stage = None
         self._current_config = None

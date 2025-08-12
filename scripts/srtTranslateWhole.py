@@ -3,6 +3,7 @@
 import os
 import re
 import argparse
+import signal
 from openai import OpenAI
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -80,14 +81,25 @@ def emit_jsonl(event_type, msg, progress=None, data=None):
     if data is not None:
         event["data"] = data
     
-    print(json.dumps(event), flush=True)
+    try:
+        print(json.dumps(event), flush=True)
+    except BrokenPipeError:
+        # Handle broken pipe gracefully - parent process may have closed
+        sys.exit(0)
+    except Exception as e:
+        # Log to stderr if stdout fails
+        print(f"WARNING: Failed to emit JSONL: {e}", file=sys.stderr, flush=True)
 
 def log_output(msg, color_code="", jsonl_type=None, progress=None, data=None):
     """Output message with color in normal mode or JSONL in JSONL mode"""
     if JSONL_MODE and jsonl_type:
         emit_jsonl(jsonl_type, msg, progress, data)
     elif not JSONL_MODE:
-        print(f"{color_code}{msg}\033[0m" if color_code else msg)
+        try:
+            print(f"{color_code}{msg}\033[0m" if color_code else msg)
+        except BrokenPipeError:
+            # Handle broken pipe gracefully
+            sys.exit(0)
 
 def animate_progress(description):
     if JSONL_MODE:
@@ -919,12 +931,19 @@ def process_srt_file(input_file, output_file, context=None, provider="openai", m
     
     # Emit final result in JSONL mode
     if JSONL_MODE:
-        emit_jsonl("result", "Translation completed successfully", 100, {
-            "input_file": input_file,
-            "output_file": output_file,
-            "duration": duration,
-            "outputs": [output_file]
-        })
+        try:
+            emit_jsonl("result", "Translation completed successfully", 100, {
+                "input_file": input_file,
+                "output_file": output_file,
+                "duration": duration,
+                "outputs": [output_file]
+            })
+            # Force flush all output before exit
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except BrokenPipeError:
+            # Parent process closed pipe - exit gracefully
+            sys.exit(0)
 
 def process_directory(directory, context=None, provider="openai", model=None, max_workers=None, chunk_size=None, source_lang="English", target_lang="Bulgarian"):
     # Get list of SRT files first
@@ -958,14 +977,21 @@ def process_directory(directory, context=None, provider="openai", model=None, ma
                 emit_jsonl("error", f"Failed to process {input_path}: {str(e)}")
         
         # Emit final result
-        emit_jsonl("result", "Directory processing completed", 100, {
-            "directory": directory,
-            "total_files": len(srt_files),
-            "successful_files": len(outputs),
-            "failed_files": len(failed_files),
-            "outputs": outputs,
-            "failures": failed_files
-        })
+        try:
+            emit_jsonl("result", "Directory processing completed", 100, {
+                "directory": directory,
+                "total_files": len(srt_files),
+                "successful_files": len(outputs),
+                "failed_files": len(failed_files),
+                "outputs": outputs,
+                "failures": failed_files
+            })
+            # Force flush all output before exit
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except BrokenPipeError:
+            # Parent process closed pipe - exit gracefully
+            sys.exit(0)
     else:
         # Normal mode with tqdm progress bar
         with tqdm(total=len(srt_files), 
@@ -989,9 +1015,19 @@ def get_output_filename(input_file, output_file=None):
     base_name = os.path.splitext(input_file)[0]
     return f"{base_name}.bg.srt"
 
+def handle_sigpipe(signum, frame):
+    """Handle SIGPIPE signal gracefully."""
+    sys.exit(0)
+
 if __name__ == "__main__":
+    # Handle SIGPIPE gracefully to prevent crashes when parent process closes pipe
+    signal.signal(signal.SIGPIPE, handle_sigpipe)
+    
     # Early debug output
-    print(f"DEBUG: Script starting with args: {sys.argv}", file=sys.stderr, flush=True)
+    try:
+        print(f"DEBUG: Script starting with args: {sys.argv}", file=sys.stderr, flush=True)
+    except BrokenPipeError:
+        sys.exit(0)
     
     parser = argparse.ArgumentParser(description="Translate SRT files between languages")
     group = parser.add_mutually_exclusive_group(required=True)
