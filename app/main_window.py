@@ -700,6 +700,9 @@ class MainWindow(QMainWindow):
         # Get configuration from stage configurators
         translate_settings = self.stage_configurators.get_translate_config()
         
+        # Debug: Show what we got from stage configurators
+        self.log_panel.add_message("info", f"DEBUG: Stage configurator settings: {translate_settings}")
+        
         # Get settings
         settings = self.config_manager.get_settings()
         translators_config = settings.get('translators', {})
@@ -707,6 +710,38 @@ class MainWindow(QMainWindow):
         
         provider = translate_settings.get('provider', 'openai')
         provider_config = translators_config.get(provider, {})
+        
+        # Load API key with fallback to environment variables and .env files
+        def get_api_key(provider: str) -> str:
+            # First check UI/settings
+            api_key = translate_settings.get('api_key') or provider_config.get('api_key', '')
+            if api_key:
+                return api_key
+            
+            # Fallback to environment variables
+            import os
+            from dotenv import load_dotenv
+            
+            # Load .env file if it exists
+            env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
+            if os.path.exists(env_file):
+                load_dotenv(env_file)
+            
+            if provider in ['claude', 'anthropic']:
+                return os.getenv('ANTHROPIC_API_KEY', '')
+            elif provider == 'openai':
+                return os.getenv('OPENAI_API_KEY', '')
+            
+            return ''
+        
+        api_key = get_api_key(provider)
+        
+        # Debug: Show final API key (masked)
+        if api_key:
+            masked_key = f"{api_key[:8]}***{api_key[-4:]}" if len(api_key) > 12 else "***"
+            self.log_panel.add_message("info", f"DEBUG: Using API key: {masked_key} for provider: {provider}")
+        else:
+            self.log_panel.add_message("error", f"DEBUG: No API key found for provider: {provider}")
         
         # Determine if single file or directory mode
         from pathlib import Path
@@ -736,7 +771,7 @@ class MainWindow(QMainWindow):
                     target_language=translate_settings.get('target_language', 'en'),
                     provider=provider,
                     model=translate_settings.get('model') or provider_config.get('default_model', ''),
-                    api_key=translate_settings.get('api_key') or provider_config.get('api_key', ''),
+                    api_key=api_key,
                     base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
                     max_workers=advanced_config.get('max_concurrent_workers', 3),
                     temperature=provider_config.get('temperature', 0.3),
@@ -753,7 +788,7 @@ class MainWindow(QMainWindow):
             target_language=translate_settings.get('target_language', 'en'),
             provider=provider,
             model=translate_settings.get('model') or provider_config.get('default_model', ''),
-            api_key=translate_settings.get('api_key') or provider_config.get('api_key', ''),
+            api_key=api_key,
             base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
             max_workers=advanced_config.get('max_concurrent_workers', 3),
             temperature=provider_config.get('temperature', 0.3),
@@ -776,12 +811,35 @@ class MainWindow(QMainWindow):
         provider = sync_settings.get('provider', 'openai')
         provider_config = translators_config.get(provider, {})
         
+        # Load API key with same logic as translate config
+        def get_sync_api_key(provider: str) -> str:
+            # First check UI/settings
+            api_key = sync_settings.get('api_key') or provider_config.get('api_key', '')
+            if api_key:
+                return api_key
+            
+            # Fallback to environment variables
+            import os
+            from dotenv import load_dotenv
+            
+            # Load .env file if it exists
+            env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
+            if os.path.exists(env_file):
+                load_dotenv(env_file)
+            
+            if provider in ['claude', 'anthropic']:
+                return os.getenv('ANTHROPIC_API_KEY', '')
+            elif provider == 'openai':
+                return os.getenv('OPENAI_API_KEY', '')
+            
+            return ''
+        
         return SyncConfig(
             input_directory=selected_path,
             provider=provider,
             model=sync_settings.get('model') or provider_config.get('default_model', ''),
             confidence_threshold=sync_settings.get('confidence_threshold', 0.8),
-            api_key=provider_config.get('api_key', ''),
+            api_key=get_sync_api_key(provider),
             dry_run=sync_settings.get('dry_run', True),
             recursive=sync_settings.get('recursive', True),
             naming_template=sync_settings.get('naming_template', "{show_title} - S{season:02d}E{episode:02d} - {episode_title}"),

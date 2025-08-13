@@ -158,14 +158,28 @@ class TranslateConfig:
         if self.provider not in valid_providers:
             return False, f"Invalid provider: {self.provider}. Must be one of {valid_providers}"
         
-        # Check API key for external providers
-        if self.provider in ["openai", "claude", "anthropic"] and not self.api_key:
-            provider_display = "Claude" if self.provider in ["claude", "anthropic"] else self.provider.upper()
-            return False, f"API key required for provider: {provider_display}"
+        # Check API key for external providers with detailed error messages
+        if self.provider in ["openai", "claude", "anthropic"]:
+            if not self.api_key:
+                provider_display = "Claude" if self.provider in ["claude", "anthropic"] else self.provider.upper()
+                env_var = "ANTHROPIC_API_KEY" if self.provider in ["claude", "anthropic"] else "OPENAI_API_KEY"
+                return False, (f"API key required for {provider_display} provider. "
+                              f"Please set the API key in Settings > Translators > {provider_display} "
+                              f"or set the {env_var} environment variable.")
+            
+            # Validate API key format for better error detection
+            if self.provider in ["claude", "anthropic"]:
+                if not self.api_key.startswith("sk-ant-"):
+                    return False, ("Invalid Claude API key format. Claude API keys should start with 'sk-ant-'. "
+                                 "Please check your API key in Settings > Translators > Claude.")
+            elif self.provider == "openai":
+                if not self.api_key.startswith("sk-"):
+                    return False, ("Invalid OpenAI API key format. OpenAI API keys should start with 'sk-'. "
+                                 "Please check your API key in Settings > Translators > OpenAI.")
         
         # Validate model is specified
         if not self.model:
-            return False, "Model must be specified"
+            return False, f"Model must be specified for provider: {self.provider}"
         
         # Validate numeric parameters
         if self.max_workers <= 0:

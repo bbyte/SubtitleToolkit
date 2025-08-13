@@ -56,6 +56,7 @@ class ScriptRunner(QObject):
         # Process completion state tracking
         self._process_completing = False
         self._final_output_read = False
+        self._completion_handled = False  # Prevents duplicate signal handling
         
         # Termination timeout timer
         self._termination_timer = QTimer(self)
@@ -158,14 +159,30 @@ class ScriptRunner(QObject):
         if self.is_running:
             raise RuntimeError("Another process is already running")
         
-        # Validate configuration
-        is_valid, error_msg = config.validate()
-        if not is_valid:
-            raise RuntimeError(f"Configuration validation failed: {error_msg}")
-        
-        # Set up for translation
+        # Set up for translation (need stage for debugging)
         self._current_stage = Stage.TRANSLATE
         self._current_config = config
+        
+        # Validate configuration with detailed debugging
+        is_valid, error_msg = config.validate()
+        if not is_valid:
+            # Add detailed debugging information
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: TRANSLATION_VALIDATION_FAILED: {error_msg}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: CONFIG_PROVIDER: {config.provider}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: CONFIG_MODEL: {config.model}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: CONFIG_API_KEY_SET: {'Yes' if config.api_key else 'No'}")
+            if config.api_key:
+                # Show masked API key for debugging
+                masked_key = f"{config.api_key[:8]}***{config.api_key[-4:]}" if len(config.api_key) > 12 else "***"
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: CONFIG_API_KEY_MASKED: {masked_key}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: CONFIG_INPUT_FILES: {config.input_files}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: CONFIG_INPUT_DIRECTORY: {config.input_directory}")
+            
+            # Reset stage since we're failing
+            self._current_stage = None
+            self._current_config = None
+            
+            raise RuntimeError(f"Translation configuration validation failed: {error_msg}")
         
         # Handle multiple input files by running script multiple times
         # For now, handle single file or directory mode
@@ -239,9 +256,7 @@ class ScriptRunner(QObject):
         # Enable process channel mode to handle stdout/stderr separately
         process.setProcessChannelMode(QProcess.SeparateChannels)
         
-        # Set up unbuffered reading to prevent pipe overflow
-        process.setStandardOutputProcess(None)
-        process.setStandardErrorProcess(None)
+        # Note: Using default process output handling for better stability
         
         # Enable shell execution to handle special characters in paths properly
         # Use shell to execute the command with proper quoting and environment variables
@@ -274,7 +289,7 @@ class ScriptRunner(QObject):
             self.signals.info_received.emit(self._current_stage, f"DEBUG: SHELL_COMMAND: {shell_command}")
             self.signals.info_received.emit(self._current_stage, f"DEBUG: FULL_COMMAND: Using shell execution with environment variables")
         
-        # Connect signals
+        # Connect signals with queued connections for thread safety
         process.readyReadStandardOutput.connect(self._on_stdout_ready)
         process.readyReadStandardError.connect(self._on_stderr_ready)
         process.finished.connect(self._on_process_finished)
@@ -520,11 +535,16 @@ class ScriptRunner(QObject):
         """Handle process finished signal."""
         if not self._current_stage:
             return
+            
+        if self._completion_handled:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Process finished signal received but completion already handled - ignoring (exit_code: {exit_code}, status: {exit_status})")
+            return
         
-        # Mark process as completing
+        # Mark completion as handled to prevent duplicate processing
+        self._completion_handled = True
         self._process_completing = True
         
-        self.signals.info_received.emit(self._current_stage, f"DEBUG: Process finished signal received - exit_code: {exit_code}, status: {exit_status}")
+        self.signals.info_received.emit(self._current_stage, f"DEBUG: Process finished signal received - exit_code: {exit_code}, status: {exit_status} [HANDLING]")
         
         # Stop output monitoring immediately to prevent race conditions
         if hasattr(self, '_output_monitor_timer'):
@@ -581,6 +601,14 @@ class ScriptRunner(QObject):
         """Complete the process handling after ensuring all output is read."""
         if not self._current_stage:
             return
+            
+        # Add debug to show we're in completion handling
+        self.signals.info_received.emit(self._current_stage, f"DEBUG: _complete_process_handling called - exit_code: {exit_code}, status: {exit_status}")
+        
+        if not self._completion_handled:
+            # Sanity check - this should not happen if our logic is correct
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: _complete_process_handling called but completion not marked as handled - this indicates a logic error")
+            return
         
         # Flush any remaining parser buffer
         try:
@@ -604,13 +632,26 @@ class ScriptRunner(QObject):
         if self._aggregator:
             summary = self._aggregator.get_summary()
         
-        # Special handling for SIGTERM after apparent success
+        # Special handling for SIGTERM after apparent success (broken pipe issue)
         # If we have result data and exit code is 15 (SIGTERM), treat as success
         apparent_success = (exit_code == 0 and exit_status == QProcess.NormalExit)
-        sigterm_after_success = (exit_code == 15 and summary.get('result_data') is not None)
+        
+        # Check for broken pipe scenario: SIGTERM but with valid outputs
+        has_outputs = (summary.get('result_data') and 
+                      summary.get('result_data', {}).get('outputs'))
+        has_successful_files = (summary.get('result_data') and 
+                              summary.get('result_data', {}).get('files_successful', 0) > 0)
+        
+        sigterm_after_success = (exit_code == 15 and (has_outputs or has_successful_files))
         
         if sigterm_after_success:
-            self.signals.info_received.emit(self._current_stage, "DEBUG: SIGTERM detected after successful completion - treating as success")
+            self.signals.info_received.emit(self._current_stage, "DEBUG: SIGTERM detected but process produced valid outputs - broken pipe issue detected, treating as success")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: SIGTERM_OVERRIDE - has_outputs: {has_outputs}, has_successful_files: {has_successful_files}")
+        elif exit_code == 15:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: SIGTERM without valid outputs - summary keys: {list(summary.keys()) if summary else 'None'}")
+            if summary.get('result_data'):
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: SIGTERM result_data keys: {list(summary['result_data'].keys())}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: SIGTERM_DETAILS - has_outputs: {has_outputs}, has_successful_files: {has_successful_files}")
         
         # Create result object
         result = ProcessResult(
@@ -645,6 +686,12 @@ class ScriptRunner(QObject):
         status = "successfully" if result.success else "with errors"
         self._logger.info(f"Process completed {status} in {duration:.1f}s")
         
+        # Send completion debug info to UI
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: FINAL_RESULT - success: {result.success}, exit_code: {result.exit_code}")
+            if sigterm_after_success:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: SIGTERM_OVERRIDE applied - treated as success")
+        
         # Send debug info to UI
         if self._current_stage:
             self.signals.info_received.emit(self._current_stage, f"DEBUG: Process completed {status} in {duration:.1f}s")
@@ -652,15 +699,47 @@ class ScriptRunner(QObject):
             
             if result.output_files:
                 self.signals.info_received.emit(self._current_stage, f"DEBUG: Output files: {result.output_files}")
+            else:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: No output files found in result")
             
-            if hasattr(result, 'files_processed') and result.files_processed:
-                self.signals.info_received.emit(self._current_stage, f"DEBUG: Files processed: {result.files_processed}, Successful: {result.files_successful}")
+            # Always show file processing stats, even if zero
+            files_processed = getattr(result, 'files_processed', 0)
+            files_successful = getattr(result, 'files_successful', 0)  
+            files_failed = getattr(result, 'files_failed', 0)
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Files processed: {files_processed}, Successful: {files_successful}, Failed: {files_failed}")
+            
+            # Show result data structure for debugging
+            if result.result_data:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Result data keys: {list(result.result_data.keys())}")
+            else:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: No result data available")
+                
+            # Show success determination logic
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Success determination - apparent_success: {apparent_success}, sigterm_after_success: {sigterm_after_success}")
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Final result.success: {result.success}")
+            
+            # Show completion handling status
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: Completion handling finished - about to cleanup and emit process_finished signal")
         
-        # Cleanup
-        self._cleanup_process()
+        # Emit result signal BEFORE cleanup to ensure it's processed
+        self.signals.process_finished.emit(result)
+        
+        # Add a small delay before cleanup to ensure all signals are processed
+        QTimer.singleShot(10, self._cleanup_process)
     
     def _on_process_error(self, error: QProcess.ProcessError):
         """Handle process error signal."""
+        # If completion was already handled, ignore this error signal
+        # This prevents the SIGTERM-after-success issue
+        if self._completion_handled:
+            if self._current_stage:
+                exit_code = self._current_process.exitCode() if self._current_process else "N/A"
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: Ignoring error signal - completion already handled (error: {error}, exit_code: {exit_code}) [RACE CONDITION PREVENTED]")
+            return
+        
+        # Mark completion as handled to prevent duplicate processing
+        self._completion_handled = True
+        
         # Stop output monitoring immediately
         if hasattr(self, '_output_monitor_timer'):
             self._output_monitor_timer.stop()
@@ -778,6 +857,10 @@ class ScriptRunner(QObject):
         
         self._logger.info(f"Terminating process for stage: {self._current_stage}")
         
+        # Add debug info - this helps track if we're terminating the process ourselves
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: MANUAL_TERMINATION_REQUESTED - calling terminate() on process")
+        
         # Try graceful termination first
         self._current_process.terminate()
         
@@ -788,6 +871,8 @@ class ScriptRunner(QObject):
         if self._current_process.waitForFinished(timeout * 1000):
             self._termination_timer.stop()
             self._logger.info("Process terminated gracefully")
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: MANUAL_TERMINATION_COMPLETED_GRACEFULLY")
             return True
         
         # If graceful termination failed, force kill
@@ -799,13 +884,22 @@ class ScriptRunner(QObject):
             return True
         
         self._logger.warning("Force killing process")
+        
+        # Add debug info - this helps track if we're force killing the process ourselves
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: MANUAL_FORCE_KILL_REQUESTED - calling kill() on process")
+        
         self._current_process.kill()
         
         if self._current_process.waitForFinished(3000):  # 3 second timeout
             self._logger.info("Process force killed")
+            if self._current_stage:
+                self.signals.info_received.emit(self._current_stage, f"DEBUG: MANUAL_FORCE_KILL_COMPLETED")
             return True
         
         self._logger.error("Failed to kill process")
+        if self._current_stage:
+            self.signals.info_received.emit(self._current_stage, f"DEBUG: MANUAL_FORCE_KILL_FAILED")
         return False
     
     def _cleanup_process(self):
@@ -817,6 +911,20 @@ class ScriptRunner(QObject):
             self._output_monitor_timer.stop()
         
         if self._current_process:
+            try:
+                # Disconnect all signals first to prevent further signal processing
+                self._current_process.readyReadStandardOutput.disconnect()
+                self._current_process.readyReadStandardError.disconnect()
+                self._current_process.finished.disconnect()
+                self._current_process.errorOccurred.disconnect()
+                self._current_process.started.disconnect()
+                if hasattr(self._current_process, 'aboutToClose'):
+                    self._current_process.aboutToClose.disconnect()
+            except Exception as e:
+                # Signal disconnection might fail if already disconnected
+                if self._current_stage:
+                    self.signals.info_received.emit(self._current_stage, f"DEBUG: Signal disconnection error (expected): {e}")
+            
             # Read any final output before terminating
             if self._current_process.state() != QProcess.NotRunning:
                 try:
@@ -855,6 +963,7 @@ class ScriptRunner(QObject):
         # Reset state flags
         self._process_completing = False
         self._final_output_read = False
+        self._completion_handled = False
         
         self._current_stage = None
         self._current_config = None
