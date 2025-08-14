@@ -7,7 +7,7 @@ according to the workflow specifications.
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTabWidget, QMenuBar, QStatusBar, QMessageBox, QLabel
+    QTabWidget, QMenuBar, QStatusBar, QMessageBox, QLabel, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QAction, QKeySequence
@@ -106,13 +106,29 @@ class MainWindow(QMainWindow):
         self.action_buttons = ActionButtons()
     
     def _create_layout(self) -> None:
-        """Create the main window layout structure."""
-        # Central widget
+        """Create the main window layout structure with scroll support."""
+        # Central widget - this will contain the scroll area
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Main vertical layout
-        main_layout = QVBoxLayout(central_widget)
+        # Create a minimal layout for the central widget
+        central_layout = QVBoxLayout(central_widget)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        
+        # Create scroll area for main content
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        
+        # Create scrollable content widget
+        scrollable_widget = QWidget()
+        scroll_area.setWidget(scrollable_widget)
+        
+        # Main vertical layout for scrollable content
+        main_layout = QVBoxLayout(scrollable_widget)
         main_layout.setSpacing(10)
         main_layout.setContentsMargins(10, 10, 10, 10)
         
@@ -146,6 +162,37 @@ class MainWindow(QMainWindow):
         
         # Set layout stretch factors
         main_layout.setStretchFactor(splitter, 1)
+        
+        # Add scroll area to central layout
+        central_layout.addWidget(scroll_area)
+        
+        # Store reference to scroll area for potential future use
+        self.scroll_area = scroll_area
+        self.scrollable_widget = scrollable_widget
+        
+        # Configure scroll area for smooth scrolling
+        self._configure_scroll_behavior()
+    
+    def _configure_scroll_behavior(self) -> None:
+        """Configure scroll area for optimal behavior."""
+        # Enable smooth scrolling
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Set scroll speed and behavior
+        vertical_scrollbar = self.scroll_area.verticalScrollBar()
+        horizontal_scrollbar = self.scroll_area.horizontalScrollBar()
+        
+        # Set single step for smooth scrolling (adjust based on font size)
+        vertical_scrollbar.setSingleStep(20)
+        horizontal_scrollbar.setSingleStep(20)
+        
+        # Set page step for larger jumps
+        vertical_scrollbar.setPageStep(200)
+        horizontal_scrollbar.setPageStep(200)
+        
+        # Enable focus on scroll area for keyboard navigation
+        self.scroll_area.setFocusPolicy(Qt.StrongFocus)
     
     def _create_menu_bar(self) -> None:
         """Create the application menu bar."""
@@ -200,6 +247,33 @@ class MainWindow(QMainWindow):
         
         view_menu.addSeparator()
         
+        # Add scroll actions to View menu
+        scroll_up_action = QAction(self.tr("Scroll &Up"), self)
+        scroll_up_action.setShortcut(QKeySequence("Ctrl+Up"))
+        scroll_up_action.setStatusTip(self.tr("Scroll content up"))
+        scroll_up_action.triggered.connect(self._scroll_up)
+        view_menu.addAction(scroll_up_action)
+        
+        scroll_down_action = QAction(self.tr("Scroll &Down"), self)
+        scroll_down_action.setShortcut(QKeySequence("Ctrl+Down"))
+        scroll_down_action.setStatusTip(self.tr("Scroll content down"))
+        scroll_down_action.triggered.connect(self._scroll_down)
+        view_menu.addAction(scroll_down_action)
+        
+        scroll_to_top_action = QAction(self.tr("Scroll to &Top"), self)
+        scroll_to_top_action.setShortcut(QKeySequence("Ctrl+Home"))
+        scroll_to_top_action.setStatusTip(self.tr("Scroll to top of content"))
+        scroll_to_top_action.triggered.connect(self._scroll_to_top)
+        view_menu.addAction(scroll_to_top_action)
+        
+        scroll_to_bottom_action = QAction(self.tr("Scroll to &Bottom"), self)
+        scroll_to_bottom_action.setShortcut(QKeySequence("Ctrl+End"))
+        scroll_to_bottom_action.setStatusTip(self.tr("Scroll to bottom of content"))
+        scroll_to_bottom_action.triggered.connect(self._scroll_to_bottom)
+        view_menu.addAction(scroll_to_bottom_action)
+        
+        view_menu.addSeparator()
+        
         # Tools menu
         tools_menu = menubar.addMenu(self.tr("&Tools"))
         
@@ -244,7 +318,9 @@ class MainWindow(QMainWindow):
             self.results_panel,
             self.action_buttons,
             self.menuBar(),
-            self.status_bar
+            self.status_bar,
+            self.scroll_area,
+            self.scrollable_widget
         ]
         
         for widget in widgets_to_register:
@@ -270,6 +346,92 @@ class MainWindow(QMainWindow):
         """Handle zoom reset to default."""
         self.log_panel.add_message("info", "Zoom level reset to 100%")
     
+    # Scroll management methods
+    def _scroll_up(self) -> None:
+        """Scroll content up."""
+        scrollbar = self.scroll_area.verticalScrollBar()
+        current_value = scrollbar.value()
+        scrollbar.setValue(current_value - scrollbar.pageStep())
+    
+    def _scroll_down(self) -> None:
+        """Scroll content down."""
+        scrollbar = self.scroll_area.verticalScrollBar()
+        current_value = scrollbar.value()
+        scrollbar.setValue(current_value + scrollbar.pageStep())
+    
+    def _scroll_to_top(self) -> None:
+        """Scroll to top of content."""
+        scrollbar = self.scroll_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.minimum())
+    
+    def _scroll_to_bottom(self) -> None:
+        """Scroll to bottom of content."""
+        scrollbar = self.scroll_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
+    def eventFilter(self, source, event) -> bool:
+        """Filter events for scroll area content updates."""
+        from PySide6.QtCore import QEvent
+        
+        # Handle resize events for the scrollable widget
+        if source == self.scrollable_widget and event.type() == QEvent.Resize:
+            # Update scroll area's widget size constraints
+            self.scroll_area.updateGeometry()
+            
+        return super().eventFilter(source, event)
+    
+    def wheelEvent(self, event) -> None:
+        """Handle wheel events for smooth scrolling."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QWheelEvent
+        
+        # Check if Ctrl is pressed for zoom, otherwise handle scroll
+        if event.modifiers() & Qt.ControlModifier:
+            # Let the zoom manager handle Ctrl+wheel events
+            super().wheelEvent(event)
+        else:
+            # Handle normal scrolling
+            scrollbar = self.scroll_area.verticalScrollBar()
+            
+            # Calculate scroll amount (negative for up, positive for down)
+            scroll_amount = -event.angleDelta().y() // 120 * scrollbar.singleStep() * 3
+            
+            current_value = scrollbar.value()
+            new_value = current_value + scroll_amount
+            
+            # Clamp to valid range
+            new_value = max(scrollbar.minimum(), min(scrollbar.maximum(), new_value))
+            scrollbar.setValue(new_value)
+            
+            event.accept()
+    
+    def ensure_widget_visible(self, widget: QWidget) -> None:
+        """Ensure a widget is visible in the scroll area."""
+        if not widget or not widget.isVisible():
+            return
+            
+        # Get widget's position relative to the scrollable content
+        widget_rect = widget.geometry()
+        scrollable_rect = self.scrollable_widget.geometry()
+        
+        # Calculate relative position
+        relative_pos = widget.mapTo(self.scrollable_widget, widget_rect.topLeft())
+        widget_bottom = relative_pos.y() + widget_rect.height()
+        
+        # Get current scroll position and visible area
+        scrollbar = self.scroll_area.verticalScrollBar()
+        current_scroll = scrollbar.value()
+        visible_height = self.scroll_area.viewport().height()
+        
+        # Check if widget is fully visible
+        if relative_pos.y() < current_scroll:
+            # Widget is above visible area, scroll up
+            scrollbar.setValue(relative_pos.y())
+        elif widget_bottom > current_scroll + visible_height:
+            # Widget is below visible area, scroll down
+            new_scroll = widget_bottom - visible_height
+            scrollbar.setValue(max(0, new_scroll))
+    
     def _connect_signals(self) -> None:
         """Connect all signal/slot relationships."""
         # Project selector signals
@@ -283,6 +445,7 @@ class MainWindow(QMainWindow):
         # Stage toggles signals
         self.stage_toggles.stages_changed.connect(self._on_stages_changed)
         self.stage_toggles.stages_changed.connect(self.stage_configurators.update_enabled_stages)
+        self.stage_toggles.stages_changed.connect(self._on_configuration_changed)
         
         # Action buttons signals
         self.action_buttons.run_clicked.connect(self._on_run_clicked)
@@ -301,6 +464,9 @@ class MainWindow(QMainWindow):
         
         # Window state manager signals
         self.window_state_manager.validation_failed.connect(self._on_window_state_error)
+        
+        # Connect scroll area resize events for dynamic content handling
+        self.scrollable_widget.installEventFilter(self)
     
     def _on_project_changed(self, path: str) -> None:
         """Handle project directory or file change."""
@@ -380,6 +546,25 @@ class MainWindow(QMainWindow):
     def _on_window_state_error(self, error_message: str) -> None:
         """Handle window state management errors."""
         self.log_panel.add_message("warning", f"Window state: {error_message}")
+    
+    def _on_configuration_changed(self) -> None:
+        """Handle configuration changes that might affect layout."""
+        # Use a timer to update scroll after layout changes have been processed
+        QTimer.singleShot(50, self._update_scroll_after_layout_change)
+    
+    def _update_scroll_after_layout_change(self) -> None:
+        """Update scroll area after layout changes."""
+        # Update the scrollable widget's size
+        self.scrollable_widget.updateGeometry()
+        self.scroll_area.updateGeometry()
+        
+        # If any configuration panels are now visible, ensure they're in view
+        if hasattr(self.stage_configurators, 'get_visible_configurators'):
+            visible_configurators = self.stage_configurators.get_visible_configurators()
+            if visible_configurators:
+                # Ensure the first visible configurator is in view
+                first_visible = visible_configurators[0]
+                self.ensure_widget_visible(first_visible)
     
     def _update_project_dependent_ui(self, path: str) -> None:
         """Update UI elements that depend on project selection."""
