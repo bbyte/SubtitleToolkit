@@ -41,11 +41,18 @@ class QCollapsibleGroupBox(QGroupBox):
                 margin-top: 1ex;
                 padding-top: 15px;
             }
+            QGroupBox:disabled {
+                color: #666;
+                border-color: #333;
+            }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 8px 0 8px;
                 color: #2a82da;
+            }
+            QGroupBox::title:disabled {
+                color: #666;
             }
             QGroupBox::indicator {
                 width: 13px;
@@ -55,28 +62,58 @@ class QCollapsibleGroupBox(QGroupBox):
             QGroupBox::indicator:unchecked {
                 image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTMiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAxMyAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTYuNSAyVjExTTIgNi41SDExIiBzdHJva2U9IiM1NTUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPg==);
             }
+            QGroupBox::indicator:unchecked:disabled {
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTMiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAxMyAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTYuNSAyVjExTTIgNi41SDExIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
             QGroupBox::indicator:checked {
                 image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTMiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAxMyAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIgNi41SDExIiBzdHJva2U9IiMyYTgyZGEiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QGroupBox::indicator:checked:disabled {
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTMiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAxMyAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIgNi41SDExIiBzdHJva2U9IiM2NjYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPg==);
             }
         """)
     
     def _on_toggled(self, checked: bool) -> None:
         """Handle toggle state change."""
         if self._content_widget:
-            self._content_widget.setVisible(checked)
-            # Animate the expansion/collapse
-            if checked:
-                self.setMaximumHeight(16777215)  # Remove height restriction
+            # Only hide/show content if the group box is enabled
+            # If disabled, always keep content visible
+            if self.isEnabled():
+                self._content_widget.setVisible(checked)
+                # Animate the expansion/collapse
+                if checked:
+                    self.setMaximumHeight(16777215)  # Remove height restriction
+                else:
+                    self.setMaximumHeight(50)  # Collapse to title height
             else:
-                self.setMaximumHeight(50)  # Collapse to title height
+                # When disabled, always show content (but keep it grayed out)
+                self._content_widget.setVisible(True)
+                self.setMaximumHeight(16777215)  # Always expanded when disabled
     
     def setContentWidget(self, widget: QWidget) -> None:
         """Set the content widget to show/hide."""
         self._content_widget = widget
-        self._content_widget.setVisible(self.isChecked())
-        # Set initial state
-        if not self.isChecked():
-            self.setMaximumHeight(50)
+        self._update_content_visibility()
+    
+    def setEnabled(self, enabled: bool) -> None:
+        """Override setEnabled to handle content visibility."""
+        super().setEnabled(enabled)
+        self._update_content_visibility()
+    
+    def _update_content_visibility(self) -> None:
+        """Update content visibility based on enabled and checked state."""
+        if self._content_widget:
+            if self.isEnabled():
+                # Normal collapsible behavior when enabled
+                self._content_widget.setVisible(self.isChecked())
+                if self.isChecked():
+                    self.setMaximumHeight(16777215)
+                else:
+                    self.setMaximumHeight(50)
+            else:
+                # Always visible when disabled (for our requirement)
+                self._content_widget.setVisible(True)
+                self.setMaximumHeight(16777215)  # Always expanded when disabled
 
 
 @dataclass
@@ -483,9 +520,10 @@ class StageConfigurators(QFrame):
         self.setFrameStyle(QFrame.StyledPanel)
         self.setLineWidth(1)
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        # Main vertical layout for title and configuration sections
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(10)
         
         # Title
         title_label = QLabel(self.tr("Stage Configuration"))
@@ -493,7 +531,11 @@ class StageConfigurators(QFrame):
         title_font.setBold(True)
         title_font.setPointSize(12)
         title_label.setFont(title_font)
-        layout.addWidget(title_label)
+        main_layout.addWidget(title_label)
+        
+        # Horizontal layout for configuration panels (side by side)
+        config_layout = QHBoxLayout()
+        config_layout.setSpacing(15)
         
         # Extract configuration
         self.extract_group = QCollapsibleGroupBox(self.tr("Extract Configuration"))
@@ -501,7 +543,7 @@ class StageConfigurators(QFrame):
         extract_layout = QVBoxLayout(self.extract_group)
         extract_layout.addWidget(self.extract_config)
         self.extract_group.setContentWidget(self.extract_config)
-        layout.addWidget(self.extract_group)
+        config_layout.addWidget(self.extract_group)
         
         # Translate configuration
         self.translate_group = QCollapsibleGroupBox(self.tr("Translate Configuration"))
@@ -509,7 +551,7 @@ class StageConfigurators(QFrame):
         translate_layout = QVBoxLayout(self.translate_group)
         translate_layout.addWidget(self.translate_config)
         self.translate_group.setContentWidget(self.translate_config)
-        layout.addWidget(self.translate_group)
+        config_layout.addWidget(self.translate_group)
         
         # Sync configuration
         self.sync_group = QCollapsibleGroupBox(self.tr("Sync Configuration"))
@@ -517,10 +559,18 @@ class StageConfigurators(QFrame):
         sync_layout = QVBoxLayout(self.sync_group)
         sync_layout.addWidget(self.sync_config)
         self.sync_group.setContentWidget(self.sync_config)
-        layout.addWidget(self.sync_group)
+        config_layout.addWidget(self.sync_group)
+        
+        # Add the horizontal layout to the main layout
+        main_layout.addLayout(config_layout)
         
         # Add stretch to push everything to top
-        layout.addStretch()
+        main_layout.addStretch()
+        
+        # Initialize all groups as visible but disabled by default
+        self.extract_group.setEnabled(False)
+        self.translate_group.setEnabled(False)
+        self.sync_group.setEnabled(False)
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
@@ -529,26 +579,29 @@ class StageConfigurators(QFrame):
         self.sync_config.config_changed.connect(self.config_changed.emit)
     
     def update_enabled_stages(self, stages: Dict[str, bool]) -> None:
-        """Update which stage configurations are enabled/visible."""
+        """Update which stage configurations are enabled/disabled."""
         self._enabled_stages = stages.copy()
         
-        # Enable/disable and expand/collapse based on stage selection
+        # Enable/disable based on stage selection (always visible)
         self.extract_group.setEnabled(stages.get('extract', False))
-        self.extract_group.setVisible(stages.get('extract', False))
-        
         self.translate_group.setEnabled(stages.get('translate', False))
-        self.translate_group.setVisible(stages.get('translate', False))
-        
         self.sync_group.setEnabled(stages.get('sync', False))
-        self.sync_group.setVisible(stages.get('sync', False))
         
-        # Auto-expand enabled stages
+        # Auto-expand enabled stages and collapse disabled ones
         if stages.get('extract', False):
             self.extract_group.setChecked(True)
+        else:
+            self.extract_group.setChecked(False)
+            
         if stages.get('translate', False):
             self.translate_group.setChecked(True)
+        else:
+            self.translate_group.setChecked(False)
+            
         if stages.get('sync', False):
             self.sync_group.setChecked(True)
+        else:
+            self.sync_group.setChecked(False)
     
     def set_project_directory(self, directory: str) -> None:
         """Set the project directory for all configurations."""
@@ -594,6 +647,10 @@ class StageConfigurators(QFrame):
     def get_sync_config(self) -> Dict[str, Any]:
         """Get sync stage configuration."""
         return self.sync_config.get_config()
+    
+    def get_visible_configurators(self) -> list:
+        """Get list of visible configurators (all configurators are always visible now)."""
+        return [self.extract_group, self.translate_group, self.sync_group]
     
     def update_from_settings(self, settings: Dict[str, Any]) -> None:
         """Update configurators from settings."""
