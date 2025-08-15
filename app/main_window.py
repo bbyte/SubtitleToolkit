@@ -83,6 +83,9 @@ class MainWindow(QMainWindow):
         self._create_status_bar()
         self._connect_signals()
         
+        # Set initial state - disable all controls until project/file is selected
+        self._set_initial_disabled_state()
+        
         # Settings dialog (created on demand)
         self._settings_dialog = None
         
@@ -99,7 +102,7 @@ class MainWindow(QMainWindow):
         # Main UI components
         self.project_selector = ProjectSelector()
         self.stage_toggles = StageToggles()
-        self.stage_configurators = StageConfigurators()
+        self.stage_configurators = StageConfigurators(self.config_manager)
         self.progress_section = ProgressSection()
         self.log_panel = LogPanel()
         self.results_panel = ResultsPanel()
@@ -172,6 +175,18 @@ class MainWindow(QMainWindow):
         
         # Configure scroll area for smooth scrolling
         self._configure_scroll_behavior()
+    
+    def _set_initial_disabled_state(self) -> None:
+        """Set initial disabled state for all controls until project/file is selected."""
+        # Disable stage toggles and configurators on startup
+        self.stage_toggles.setEnabled(False)
+        self.stage_configurators.setEnabled(False)
+        
+        # Disable action buttons (except cancel)
+        self.action_buttons.set_run_enabled(False)
+        
+        # Set status message
+        self.status_bar.showMessage(self.tr("Please select a project directory or file to get started"))
     
     def _configure_scroll_behavior(self) -> None:
         """Configure scroll area for optimal behavior."""
@@ -438,6 +453,7 @@ class MainWindow(QMainWindow):
         self.project_selector.directory_selected.connect(self._on_project_changed)
         self.project_selector.file_selected.connect(self._on_project_changed)
         self.project_selector.selection_cleared.connect(self._on_project_cleared)
+        self.project_selector.languages_detected.connect(self._on_languages_detected)
         
         # Connect mode changes to stage availability
         self.project_selector.mode_group.buttonToggled.connect(self._on_selection_mode_changed)
@@ -477,13 +493,47 @@ class MainWindow(QMainWindow):
         path_obj = Path(path)
         if path_obj.is_dir():
             self.log_panel.add_message("info", f"Project directory selected: {path}")
+            # Clear file type constraints for directory mode
+            self.stage_toggles.set_file_type_constraints("")
         else:
             self.log_panel.add_message("info", f"Single file selected: {path}")
+            # Apply file type constraints based on selected file
+            self.stage_toggles.set_file_type_constraints(path)
     
     def _on_project_cleared(self) -> None:
         """Handle project selection being cleared."""
         self.project_changed.emit("")
         self.log_panel.add_message("info", "Project selection cleared")
+        
+        # Clear detected languages in extract configuration
+        self.stage_configurators.clear_extract_languages()
+        
+        # Clear file type constraints
+        self.stage_toggles.set_file_type_constraints("")
+    
+    def _on_languages_detected(self, detection_result) -> None:
+        """Handle subtitle language detection results."""
+        from app.utils.mkv_language_detector import LanguageDetectionResult
+        
+        # Type check for safety
+        if not isinstance(detection_result, LanguageDetectionResult):
+            return
+        
+        # Forward the detection result to the ExtractConfigWidget
+        self.stage_configurators.update_extract_languages(detection_result)
+        
+        # Log language detection results
+        if detection_result.errors:
+            for error in detection_result.errors[:3]:  # Show first 3 errors
+                self.log_panel.add_message("warning", f"Language detection: {error}")
+        
+        if detection_result.available_languages:
+            lang_names = [name for _, name in detection_result.available_languages]
+            self.log_panel.add_message("info", 
+                f"Found subtitle languages in {detection_result.files_with_subtitles}/{detection_result.total_files} files: {', '.join(lang_names)}")
+        elif detection_result.total_files > 0:
+            self.log_panel.add_message("warning", 
+                f"No subtitle languages found in {detection_result.total_files} MKV file(s)")
     
     def _on_selection_mode_changed(self, button, checked: bool) -> None:
         """Handle selection mode change between directory and file."""

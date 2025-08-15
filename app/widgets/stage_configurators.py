@@ -9,7 +9,7 @@ This widget contains expandable configuration panels for each processing stage:
 
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
@@ -20,6 +20,7 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
 
 from ..config.settings_schema import SettingsSchema
+from ..utils.mkv_language_detector import LanguageDetectionResult
 
 
 class QCollapsibleGroupBox(QGroupBox):
@@ -133,11 +134,15 @@ class ExtractConfigWidget(QFrame):
     
     config_changed = Signal()
     
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, config_manager=None, parent: QWidget = None):
         super().__init__(parent)
         self._project_directory = ""
+        self._config_manager = config_manager
+        self._detected_languages = []  # Store detected languages from MKV files
+        self._has_language_detection = False  # Track if language detection has been performed
         self._setup_ui()
         self._connect_signals()
+        self._load_saved_language_preference()
     
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -147,14 +152,14 @@ class ExtractConfigWidget(QFrame):
         
         # Language selection
         self.language_combo = QComboBox()
-        # Populate with all supported languages from schema
-        supported_languages = SettingsSchema.get_supported_languages()
-        for code, name in sorted(supported_languages.items(), key=lambda x: x[1]):
-            display_text = f"{name} ({code})" if code != "auto" else name
-            self.language_combo.addItem(display_text, code)
-        # Set default to English
-        self._set_language_combo_by_code(self.language_combo, "eng")
+        self._populate_default_languages()  # Initially populate with default languages
         layout.addRow("Subtitle Language:", self.language_combo)
+        
+        # Error/status label for language detection issues
+        self.language_status_label = QLabel()
+        self.language_status_label.setWordWrap(True)
+        self.language_status_label.hide()  # Initially hidden
+        layout.addRow("", self.language_status_label)
         
         # Output directory selection
         output_layout = QHBoxLayout()
@@ -166,11 +171,10 @@ class ExtractConfigWidget(QFrame):
         output_layout.addWidget(self.output_dir_browse)
         layout.addRow("Output Directory:", output_layout)
         
-        # Subtitle format options
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(["SRT (SubRip)", "VTT (WebVTT)", "ASS (Advanced SSA)"])
-        self.format_combo.setCurrentText("SRT (SubRip)")
-        layout.addRow("Output Format:", self.format_combo)
+        # Subtitle format - fixed to SRT only
+        format_label = QLabel("SRT (SubRip)")
+        format_label.setStyleSheet("color: #888; font-style: italic;")
+        layout.addRow("Output Format:", format_label)
         
         # Advanced options
         self.extract_all_checkbox = QCheckBox("Extract all subtitle tracks")
@@ -179,17 +183,37 @@ class ExtractConfigWidget(QFrame):
         
         self.overwrite_checkbox = QCheckBox("Overwrite existing files")
         self.overwrite_checkbox.setToolTip("Overwrite existing subtitle files")
+        self.overwrite_checkbox.setChecked(True)  # Default to checked
         layout.addRow("", self.overwrite_checkbox)
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
-        self.language_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.language_combo.currentTextChanged.connect(self._on_language_changed)
         self.output_dir_edit.textChanged.connect(lambda: self.config_changed.emit())
-        self.format_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.extract_all_checkbox.toggled.connect(lambda: self.config_changed.emit())
         self.overwrite_checkbox.toggled.connect(lambda: self.config_changed.emit())
         
         self.output_dir_browse.clicked.connect(self._browse_output_directory)
+    
+    def _on_language_changed(self) -> None:
+        """Handle language selection change."""
+        self._save_language_preference()
+        self.config_changed.emit()
+    
+    def _load_saved_language_preference(self) -> None:
+        """Load saved language preference from settings."""
+        if self._config_manager:
+            languages_settings = self._config_manager.get_settings("languages")
+            saved_language = languages_settings.get("default_extract_language", "eng")
+            self._set_language_combo_by_code(self.language_combo, saved_language)
+    
+    def _save_language_preference(self) -> None:
+        """Save current language selection to settings."""
+        if self._config_manager:
+            current_language = self.language_combo.currentData() or "eng"
+            languages_settings = self._config_manager.get_settings("languages")
+            languages_settings["default_extract_language"] = current_language
+            self._config_manager.update_settings("languages", languages_settings, save=True)
     
     def _browse_output_directory(self) -> None:
         """Browse for output directory."""
@@ -217,12 +241,117 @@ class ExtractConfigWidget(QFrame):
                 combo.setCurrentIndex(i)
                 break
     
+    def _populate_default_languages(self) -> None:
+        """Populate language combo with default supported languages."""
+        self.language_combo.clear()
+        supported_languages = SettingsSchema.get_supported_languages()
+        for code, name in sorted(supported_languages.items(), key=lambda x: x[1]):
+            display_text = f"{name} ({code})" if code != "auto" else name
+            self.language_combo.addItem(display_text, code)
+        # Set default to English
+        self._set_language_combo_by_code(self.language_combo, "eng")
+        self._has_language_detection = False
+    
+    def update_detected_languages(self, detection_result: LanguageDetectionResult) -> None:
+        """Update the language dropdown with detected languages from MKV files."""
+        self._has_language_detection = True
+        
+        # Handle errors first
+        if detection_result.errors:
+            error_msg = "Language detection issues: " + "; ".join(detection_result.errors[:2])
+            self._show_language_status("warning", error_msg)
+        
+        # Check if no languages were detected
+        if not detection_result.available_languages:
+            if detection_result.total_files > 0:
+                self._show_language_status("error", 
+                    f"No subtitle tracks found in {detection_result.total_files} MKV file(s). "
+                    "Subtitle extraction is not possible.")
+                self.language_combo.setEnabled(False)
+                return
+            else:
+                self._show_language_status("warning", "No MKV files found for language detection.")
+                return
+        
+        # Store detected languages
+        self._detected_languages = detection_result.available_languages.copy()
+        
+        # Get current selection to preserve it if possible
+        current_selection = self.language_combo.currentData()
+        
+        # Update combo box with detected languages
+        self.language_combo.clear()
+        self.language_combo.setEnabled(True)
+        
+        # Add detected languages
+        for code, name in self._detected_languages:
+            display_text = f"{name} ({code})"
+            self.language_combo.addItem(display_text, code)
+        
+        # Try to restore previous selection if it's available in detected languages
+        available_codes = [code for code, _ in self._detected_languages]
+        if current_selection and current_selection in available_codes:
+            self._set_language_combo_by_code(self.language_combo, current_selection)
+        elif "eng" in available_codes:
+            # Default to English if available
+            self._set_language_combo_by_code(self.language_combo, "eng")
+        elif self._detected_languages:
+            # Otherwise, select the first detected language
+            self.language_combo.setCurrentIndex(0)
+        
+        # Show success status
+        lang_count = len(self._detected_languages)
+        files_with_subs = detection_result.files_with_subtitles
+        total_files = detection_result.total_files
+        
+        if files_with_subs == total_files:
+            status_msg = f"Found {lang_count} subtitle language(s) in {total_files} MKV file(s)"
+        else:
+            status_msg = f"Found {lang_count} subtitle language(s) in {files_with_subs}/{total_files} MKV file(s)"
+        
+        self._show_language_status("info", status_msg)
+    
+    def clear_detected_languages(self) -> None:
+        """Clear detected languages and revert to default language list."""
+        self._detected_languages = []
+        self._has_language_detection = False
+        self.language_combo.setEnabled(True)
+        self._populate_default_languages()
+        self._hide_language_status()
+    
+    def _show_language_status(self, level: str, message: str) -> None:
+        """Show status message for language detection."""
+        self.language_status_label.setText(message)
+        self.language_status_label.show()
+        
+        # Apply styling based on level
+        if level == "error":
+            self.language_status_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+        elif level == "warning":
+            self.language_status_label.setStyleSheet("color: #ffa726; font-weight: bold;")
+        elif level == "info":
+            self.language_status_label.setStyleSheet("color: #66bb6a; font-weight: bold;")
+        else:
+            self.language_status_label.setStyleSheet("")
+    
+    def _hide_language_status(self) -> None:
+        """Hide the language status label."""
+        self.language_status_label.hide()
+    
+    def has_detected_languages(self) -> bool:
+        """Check if language detection has been performed and languages are available."""
+        return self._has_language_detection and bool(self._detected_languages)
+    
+    def get_detected_languages(self) -> List[Tuple[str, str]]:
+        """Get the list of detected languages."""
+        return self._detected_languages.copy()
+    
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
         return {
             'language_code': self.language_combo.currentData() or 'eng',
             'output_directory': self.output_dir_edit.text() or self._project_directory,
-            'format': self.format_combo.currentText().split(' (')[0].lower(),
+            'format': 'srt',  # Fixed to SRT format only
             'extract_all': self.extract_all_checkbox.isChecked(),
             'overwrite_existing': self.overwrite_checkbox.isChecked()
         }
@@ -230,6 +359,14 @@ class ExtractConfigWidget(QFrame):
     def validate(self) -> ValidationResult:
         """Validate the current configuration."""
         config = self.get_config()
+        
+        # Check if language combo is disabled (no subtitles found)
+        if not self.language_combo.isEnabled():
+            return ValidationResult(False, "No subtitle tracks found in MKV file(s). Cannot extract subtitles.")
+        
+        # Check if a language is selected
+        if not config['language_code']:
+            return ValidationResult(False, "Please select a subtitle language to extract.")
         
         # Check output directory
         output_dir = config['output_directory']
@@ -506,11 +643,12 @@ class StageConfigurators(QFrame):
     
     config_changed = Signal()
     
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, config_manager=None, parent: QWidget = None):
         super().__init__(parent)
         
         self._project_directory = ""
         self._enabled_stages = {'extract': False, 'translate': False, 'sync': False}
+        self._config_manager = config_manager
         
         self._setup_ui()
         self._connect_signals()
@@ -539,7 +677,7 @@ class StageConfigurators(QFrame):
         
         # Extract configuration
         self.extract_group = QCollapsibleGroupBox(self.tr("Extract Configuration"))
-        self.extract_config = ExtractConfigWidget()
+        self.extract_config = ExtractConfigWidget(self._config_manager)
         extract_layout = QVBoxLayout(self.extract_group)
         extract_layout.addWidget(self.extract_config)
         self.extract_group.setContentWidget(self.extract_config)
@@ -657,3 +795,15 @@ class StageConfigurators(QFrame):
         # This method can be used to update the configurators when settings change
         # For now, it's a placeholder - individual config widgets manage their own state
         pass
+    
+    def get_extract_widget(self) -> ExtractConfigWidget:
+        """Get the extract configuration widget for signal connections."""
+        return self.extract_config
+    
+    def update_extract_languages(self, detection_result) -> None:
+        """Update extract configuration with detected languages."""
+        self.extract_config.update_detected_languages(detection_result)
+    
+    def clear_extract_languages(self) -> None:
+        """Clear detected languages in extract configuration."""
+        self.extract_config.clear_detected_languages()
