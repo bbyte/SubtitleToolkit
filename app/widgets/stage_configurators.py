@@ -369,11 +369,12 @@ class TranslateConfigWidget(QFrame):
 
 class SyncConfigWidget(QFrame):
     """Configuration widget for the Sync stage."""
-    
+
     config_changed = Signal()
-    
+
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
+        self._translate_enabled = False
         self._setup_ui()
         self._connect_signals()
     
@@ -382,24 +383,51 @@ class SyncConfigWidget(QFrame):
         layout = QFormLayout(self)
         layout.setContentsMargins(20, 10, 20, 10)
         layout.setSpacing(10)
-        
+
+        # "Use same as Translate" checkbox (will be shown only when translate is enabled)
+        self.use_translate_settings_checkbox = QCheckBox("Use same provider settings as Translate stage")
+        self.use_translate_settings_checkbox.setChecked(True)
+        self.use_translate_settings_checkbox.setVisible(False)  # Hidden by default
+        layout.addRow("", self.use_translate_settings_checkbox)
+
+        # Provider selection
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(["OpenAI", "Claude"])
+        layout.addRow("AI Provider:", self.provider_combo)
+
+        # Model selection (provider-specific)
+        self.model_combo = QComboBox()
+        layout.addRow("Model:", self.model_combo)
+
+        # API key field
+        api_key_layout = QHBoxLayout()
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setEchoMode(QLineEdit.Password)
+        self.api_key_edit.setPlaceholderText("Enter API key or set in Settings")
+        self.show_key_button = QPushButton(self.tr("Show"))
+        self.show_key_button.setMaximumWidth(60)
+        self.show_key_button.setCheckable(True)
+        api_key_layout.addWidget(self.api_key_edit)
+        api_key_layout.addWidget(self.show_key_button)
+        layout.addRow("API Key:", api_key_layout)
+
         # Naming template
         self.template_edit = QLineEdit()
         self.template_edit.setText("{video_name}.{language}.srt")
         self.template_edit.setPlaceholderText("{video_name}.{language}.srt")
         layout.addRow("Naming Template:", self.template_edit)
-        
+
         # Template help
         template_help = QLabel(self.tr("Available placeholders: {video_name}, {language}, {original_name}"))
         template_help.setStyleSheet("color: #bbb; font-size: 10px;")
         template_help.setWordWrap(True)
         layout.addRow("", template_help)
-        
+
         # Dry run toggle
         self.dry_run_checkbox = QCheckBox("Dry run (preview changes without renaming)")
         self.dry_run_checkbox.setChecked(True)  # Default to safe mode
         layout.addRow("", self.dry_run_checkbox)
-        
+
         # Confidence threshold
         self.confidence_slider = QSlider(Qt.Horizontal)
         self.confidence_slider.setRange(50, 100)
@@ -409,18 +437,26 @@ class SyncConfigWidget(QFrame):
         confidence_layout.addWidget(self.confidence_slider)
         confidence_layout.addWidget(self.confidence_label)
         layout.addRow("Confidence Threshold:", confidence_layout)
-        
+
         # Backup option
         self.backup_checkbox = QCheckBox("Create backup of original filenames")
         self.backup_checkbox.setChecked(True)
         layout.addRow("", self.backup_checkbox)
-        
+
         # Case sensitivity
         self.case_sensitive_checkbox = QCheckBox("Case-sensitive matching")
         layout.addRow("", self.case_sensitive_checkbox)
+
+        # Update model options based on provider
+        self._update_model_options()
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
+        self.use_translate_settings_checkbox.toggled.connect(self._on_use_translate_toggled)
+        self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
+        self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
+        self.show_key_button.toggled.connect(self._toggle_api_key_visibility)
         self.template_edit.textChanged.connect(lambda: self.config_changed.emit())
         self.dry_run_checkbox.toggled.connect(lambda: self.config_changed.emit())
         self.confidence_slider.valueChanged.connect(self._on_confidence_changed)
@@ -431,10 +467,70 @@ class SyncConfigWidget(QFrame):
         """Handle confidence threshold change."""
         self.confidence_label.setText(f"{value}%")
         self.config_changed.emit()
+
+    def _on_use_translate_toggled(self, checked: bool) -> None:
+        """Handle 'Use same as Translate' checkbox toggle."""
+        # Enable/disable provider settings based on checkbox
+        self.provider_combo.setEnabled(not checked)
+        self.model_combo.setEnabled(not checked)
+        self.api_key_edit.setEnabled(not checked)
+        self.show_key_button.setEnabled(not checked)
+        self.config_changed.emit()
+
+    def _on_provider_changed(self) -> None:
+        """Handle provider selection change."""
+        self._update_model_options()
+        self.config_changed.emit()
+
+    def _update_model_options(self) -> None:
+        """Update available models based on selected provider."""
+        provider = self.provider_combo.currentText()
+        self.model_combo.clear()
+
+        if provider == "OpenAI":
+            self.model_combo.addItems([
+                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"
+            ])
+            self.api_key_edit.setPlaceholderText("OpenAI API key or set in Settings")
+        elif provider == "Claude":
+            self.model_combo.addItems([
+                "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
+                "claude-3-haiku-20240307", "claude-3-opus-20240229"
+            ])
+            self.api_key_edit.setPlaceholderText("Anthropic API key or set in Settings")
+
+    def _toggle_api_key_visibility(self, show: bool) -> None:
+        """Toggle API key visibility."""
+        if show:
+            self.api_key_edit.setEchoMode(QLineEdit.Normal)
+            self.show_key_button.setText(self.tr("Hide"))
+        else:
+            self.api_key_edit.setEchoMode(QLineEdit.Password)
+            self.show_key_button.setText(self.tr("Show"))
+
+    def set_translate_enabled(self, enabled: bool) -> None:
+        """Set whether translate stage is enabled (shows/hides the 'Use same as Translate' checkbox)."""
+        self._translate_enabled = enabled
+        self.use_translate_settings_checkbox.setVisible(enabled)
+        # Trigger the toggle handler to update UI state
+        self._on_use_translate_toggled(self.use_translate_settings_checkbox.isChecked())
     
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
+        # Map UI display names to script provider names
+        provider_mapping = {
+            'openai': 'openai',
+            'claude': 'claude'
+        }
+
+        provider_text = self.provider_combo.currentText().lower()
+        provider = provider_mapping.get(provider_text, provider_text)
+
         return {
+            'use_translate_settings': self.use_translate_settings_checkbox.isChecked() and self._translate_enabled,
+            'provider': provider,
+            'model': self.model_combo.currentText(),
+            'api_key': self.api_key_edit.text(),
             'naming_template': self.template_edit.text(),
             'dry_run': self.dry_run_checkbox.isChecked(),
             'confidence_threshold': self.confidence_slider.value() / 100.0,
@@ -445,18 +541,31 @@ class SyncConfigWidget(QFrame):
     def validate(self) -> ValidationResult:
         """Validate the current configuration."""
         config = self.get_config()
-        
+
+        # Only validate provider settings if NOT using translate settings
+        if not config['use_translate_settings']:
+            # Check if API key is provided or can be loaded from settings
+            provider = config['provider']
+            if provider in ['openai', 'claude'] and not config['api_key']:
+                provider_display = 'Claude' if provider == 'claude' else 'OpenAI'
+                return ValidationResult(False, f"{provider_display} API key is required for Sync stage. "
+                                              f"Please enter it or enable 'Use same as Translate'.")
+
+            # Check model is specified
+            if not config['model']:
+                return ValidationResult(False, "Model must be specified for Sync stage")
+
         # Check template validity
         template = config['naming_template']
         if not template.strip():
             return ValidationResult(False, "Naming template cannot be empty")
-        
+
         # Check for invalid characters in template
         invalid_chars = ['<', '>', ':', '"', '|', '?', '*']
         for char in invalid_chars:
             if char in template:
                 return ValidationResult(False, f"Invalid character '{char}' in naming template")
-        
+
         return ValidationResult(True)
 
 
@@ -531,17 +640,20 @@ class StageConfigurators(QFrame):
     def update_enabled_stages(self, stages: Dict[str, bool]) -> None:
         """Update which stage configurations are enabled/visible."""
         self._enabled_stages = stages.copy()
-        
+
         # Enable/disable and expand/collapse based on stage selection
         self.extract_group.setEnabled(stages.get('extract', False))
         self.extract_group.setVisible(stages.get('extract', False))
-        
+
         self.translate_group.setEnabled(stages.get('translate', False))
         self.translate_group.setVisible(stages.get('translate', False))
-        
+
         self.sync_group.setEnabled(stages.get('sync', False))
         self.sync_group.setVisible(stages.get('sync', False))
-        
+
+        # Notify sync config whether translate is enabled (for "Use same as Translate" checkbox)
+        self.sync_config.set_translate_enabled(stages.get('translate', False))
+
         # Auto-expand enabled stages
         if stages.get('extract', False):
             self.extract_group.setChecked(True)

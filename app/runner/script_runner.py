@@ -720,12 +720,13 @@ class ScriptRunner(QObject):
             
             # Show completion handling status
             self.signals.info_received.emit(self._current_stage, f"DEBUG: Completion handling finished - about to cleanup and emit process_finished signal")
-        
-        # Emit result signal BEFORE cleanup to ensure it's processed
+
+        # Clean up FIRST to free the process slot
+        # This prevents the "Another process is already running" error when the next stage tries to start
+        self._cleanup_process()
+
+        # Emit result signal AFTER cleanup so that is_running returns False
         self.signals.process_finished.emit(result)
-        
-        # Add a small delay before cleanup to ensure all signals are processed
-        QTimer.singleShot(10, self._cleanup_process)
     
     def _on_process_error(self, error: QProcess.ProcessError):
         """Handle process error signal."""

@@ -66,19 +66,19 @@ class ExtractConfig:
     def to_cli_args(self) -> List[str]:
         """Convert configuration to CLI arguments for extract_mkv_subtitles.py."""
         args = [self.input_directory]
-        
+
         if self.language_code != "eng":
             args.extend(["-l", self.language_code])
-        
+
         if self.output_directory:
             args.extend(["-o", self.output_directory])
-        
+
         if self.overwrite_existing:
             args.append("--overwrite")
-        
+
         # Always add JSONL flag for desktop app
         args.append("--jsonl")
-        
+
         return args
     
     def get_env_vars(self) -> Dict[str, str]:

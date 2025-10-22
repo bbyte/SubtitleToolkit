@@ -357,6 +357,10 @@ class MainWindow(QMainWindow):
                 f"Failed to start processing pipeline:\n\n{str(e)}"
             )
             self.log_panel.add_message("error", f"Pipeline start failed: {str(e)}")
+            # Ensure progress section shows error state
+            if self.progress_section.is_processing():
+                self.progress_section.stop_processing(success=False, message="Pipeline failed to start")
+            self._set_running_state(False)
     
     def _on_cancel_clicked(self) -> None:
         """Handle cancel button click."""
@@ -648,9 +652,12 @@ class MainWindow(QMainWindow):
             config = self._build_extract_config()
             self.script_runner.run_extract(config)
         except Exception as e:
-            self.log_panel.add_message("error", f"Failed to start extraction: {str(e)}")
+            error_msg = f"Failed to start extraction: {str(e)}"
+            self.log_panel.add_message("error", error_msg)
+            self.progress_section.stop_processing(success=False, message="Extract stage failed to start")
             self._set_running_state(False)
-            raise
+            # Re-raise so caller knows the stage failed
+            raise RuntimeError(error_msg) from e
     
     def _run_translate_stage(self) -> None:
         """Run the translation stage."""
@@ -658,9 +665,12 @@ class MainWindow(QMainWindow):
             config = self._build_translate_config()
             self.script_runner.run_translate(config)
         except Exception as e:
-            self.log_panel.add_message("error", f"Failed to start translation: {str(e)}")
+            error_msg = f"Failed to start translation: {str(e)}"
+            self.log_panel.add_message("error", error_msg)
+            self.progress_section.stop_processing(success=False, message="Translate stage failed to start")
             self._set_running_state(False)
-            raise
+            # Re-raise so caller knows the stage failed
+            raise RuntimeError(error_msg) from e
     
     def _run_sync_stage(self) -> None:
         """Run the sync stage."""
@@ -668,9 +678,12 @@ class MainWindow(QMainWindow):
             config = self._build_sync_config()
             self.script_runner.run_sync(config)
         except Exception as e:
-            self.log_panel.add_message("error", f"Failed to start sync: {str(e)}")
+            error_msg = f"Failed to start sync: {str(e)}"
+            self.log_panel.add_message("error", error_msg)
+            self.progress_section.stop_processing(success=False, message="Sync stage failed to start")
             self._set_running_state(False)
-            raise
+            # Re-raise so caller knows the stage failed
+            raise RuntimeError(error_msg) from e
     
     def _build_extract_config(self) -> ExtractConfig:
         """Build extraction configuration from UI settings."""
@@ -709,29 +722,55 @@ class MainWindow(QMainWindow):
         advanced_config = settings.get('advanced', {})
         
         provider = translate_settings.get('provider', 'openai')
-        provider_config = translators_config.get(provider, {})
-        
+
+        # Normalize provider name for settings lookup
+        # UI uses 'claude' but settings uses 'anthropic'
+        settings_provider = 'anthropic' if provider == 'claude' else provider
+        provider_config = translators_config.get(settings_provider, {})
+
+        # Debug: Show what's in the config
+        self.log_panel.add_message("info", f"DEBUG: translators_config keys: {list(translators_config.keys())}")
+        self.log_panel.add_message("info", f"DEBUG: Looking for provider: {provider} (settings key: {settings_provider})")
+        self.log_panel.add_message("info", f"DEBUG: provider_config keys: {list(provider_config.keys())}")
+        if 'api_key' in provider_config:
+            masked = f"{provider_config['api_key'][:8]}***" if len(provider_config['api_key']) > 8 else "***"
+            self.log_panel.add_message("info", f"DEBUG: provider_config has api_key: {masked}")
+
         # Load API key with fallback to environment variables and .env files
         def get_api_key(provider: str) -> str:
-            # First check UI/settings
-            api_key = translate_settings.get('api_key') or provider_config.get('api_key', '')
-            if api_key:
-                return api_key
-            
+            # First check UI field (from stage configurator)
+            ui_api_key = translate_settings.get('api_key', '').strip()
+            if ui_api_key:
+                self.log_panel.add_message("info", "DEBUG: Using API key from UI field")
+                return ui_api_key
+
+            # Then check settings (from Settings dialog)
+            settings_api_key = provider_config.get('api_key', '').strip()
+            self.log_panel.add_message("info", f"DEBUG: Settings API key empty: {not bool(settings_api_key)}")
+            if settings_api_key:
+                self.log_panel.add_message("info", "DEBUG: Using API key from Settings")
+                return settings_api_key
+
             # Fallback to environment variables
             import os
             from dotenv import load_dotenv
-            
+
             # Load .env file if it exists
             env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
             if os.path.exists(env_file):
                 load_dotenv(env_file)
-            
+
             if provider in ['claude', 'anthropic']:
-                return os.getenv('ANTHROPIC_API_KEY', '')
+                env_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
+                if env_key:
+                    self.log_panel.add_message("info", "DEBUG: Using API key from environment variable")
+                    return env_key
             elif provider == 'openai':
-                return os.getenv('OPENAI_API_KEY', '')
-            
+                env_key = os.getenv('OPENAI_API_KEY', '').strip()
+                if env_key:
+                    self.log_panel.add_message("info", "DEBUG: Using API key from environment variable")
+                    return env_key
+
             return ''
         
         api_key = get_api_key(provider)
@@ -800,46 +839,79 @@ class MainWindow(QMainWindow):
     def _build_sync_config(self) -> SyncConfig:
         """Build sync configuration from UI settings."""
         selected_path = self.project_selector.get_selected_path()
-        
+
         # Get configuration from stage configurators
         sync_settings = self.stage_configurators.get_sync_config()
-        
+
         # Get settings
         settings = self.config_manager.get_settings()
         translators_config = settings.get('translators', {})
-        
-        provider = sync_settings.get('provider', 'openai')
-        provider_config = translators_config.get(provider, {})
-        
-        # Load API key with same logic as translate config
-        def get_sync_api_key(provider: str) -> str:
-            # First check UI/settings
-            api_key = sync_settings.get('api_key') or provider_config.get('api_key', '')
-            if api_key:
-                return api_key
-            
+
+        # Check if we should use translate settings
+        use_translate_settings = sync_settings.get('use_translate_settings', False)
+
+        if use_translate_settings:
+            # Use provider settings from translate stage
+            translate_settings = self.stage_configurators.get_translate_config()
+            provider = translate_settings.get('provider', 'openai')
+            model = translate_settings.get('model', '')
+            api_key = translate_settings.get('api_key', '')
+        else:
+            # Use sync-specific provider settings
+            provider = sync_settings.get('provider', 'openai')
+            model = sync_settings.get('model', '')
+            api_key = sync_settings.get('api_key', '')
+
+        # Get provider config from settings
+        # Normalize provider name for settings lookup (UI uses 'claude' but settings uses 'anthropic')
+        settings_provider = 'anthropic' if provider == 'claude' else provider
+        provider_config = translators_config.get(settings_provider, {})
+
+        # Load API key with fallback logic
+        def get_sync_api_key(provider: str, ui_api_key: str) -> str:
+            # First check UI-provided key (strip whitespace)
+            ui_key_clean = ui_api_key.strip() if ui_api_key else ''
+            if ui_key_clean:
+                self.log_panel.add_message("info", "DEBUG: Sync using API key from UI field")
+                return ui_key_clean
+
+            # Then check settings
+            settings_key = provider_config.get('api_key', '').strip()
+            if settings_key:
+                self.log_panel.add_message("info", "DEBUG: Sync using API key from Settings")
+                return settings_key
+
             # Fallback to environment variables
             import os
             from dotenv import load_dotenv
-            
+
             # Load .env file if it exists
             env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
             if os.path.exists(env_file):
                 load_dotenv(env_file)
-            
+
             if provider in ['claude', 'anthropic']:
-                return os.getenv('ANTHROPIC_API_KEY', '')
+                env_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
+                if env_key:
+                    self.log_panel.add_message("info", "DEBUG: Sync using API key from environment")
+                    return env_key
             elif provider == 'openai':
-                return os.getenv('OPENAI_API_KEY', '')
-            
+                env_key = os.getenv('OPENAI_API_KEY', '').strip()
+                if env_key:
+                    self.log_panel.add_message("info", "DEBUG: Sync using API key from environment")
+                    return env_key
+
             return ''
-        
+
+        # Get final model (with fallback to default)
+        final_model = model or provider_config.get('default_model', '')
+
         return SyncConfig(
             input_directory=selected_path,
             provider=provider,
-            model=sync_settings.get('model') or provider_config.get('default_model', ''),
+            model=final_model,
             confidence_threshold=sync_settings.get('confidence_threshold', 0.8),
-            api_key=get_sync_api_key(provider),
+            api_key=get_sync_api_key(provider, api_key),
             dry_run=sync_settings.get('dry_run', True),
             recursive=sync_settings.get('recursive', True),
             naming_template=sync_settings.get('naming_template', "{show_title} - S{season:02d}E{episode:02d} - {episode_title}"),
@@ -940,25 +1012,30 @@ class MainWindow(QMainWindow):
     def _check_next_stage(self, completed_stage: Stage, result=None) -> None:
         """Check if we need to run the next stage in the pipeline."""
         stages = self.stage_toggles.get_enabled_stages()
-        
-        # Determine next stage to run
-        if completed_stage == Stage.EXTRACT and stages.get('translate', False):
-            # Check if extraction produced any output files
-            if result and hasattr(result, 'output_files') and result.output_files:
-                self._run_translate_stage()
-            else:
-                self.log_panel.add_message("warning", "Skipping translation stage - no subtitle files were extracted")
-                # Check if sync stage should run
-                if stages.get('sync', False):
-                    self._run_sync_stage()
+
+        try:
+            # Determine next stage to run
+            if completed_stage == Stage.EXTRACT and stages.get('translate', False):
+                # Check if extraction produced any output files
+                if result and hasattr(result, 'output_files') and result.output_files:
+                    self._run_translate_stage()
                 else:
-                    self.log_panel.add_message("info", "Processing pipeline completed")
-                    self.progress_section.stop_processing(success=True, message="Pipeline completed with warnings")
-                    self._set_running_state(False)
-        elif completed_stage == Stage.TRANSLATE and stages.get('sync', False):
-            self._run_sync_stage()
-        else:
-            # Pipeline complete
-            self.log_panel.add_message("info", "Processing pipeline completed")
-            self.progress_section.stop_processing(success=True, message="Pipeline completed successfully")
-            self._set_running_state(False)
+                    self.log_panel.add_message("warning", "Skipping translation stage - no subtitle files were extracted")
+                    # Check if sync stage should run
+                    if stages.get('sync', False):
+                        self._run_sync_stage()
+                    else:
+                        self.log_panel.add_message("info", "Processing pipeline completed")
+                        self.progress_section.stop_processing(success=True, message="Pipeline completed with warnings")
+                        self._set_running_state(False)
+            elif completed_stage == Stage.TRANSLATE and stages.get('sync', False):
+                self._run_sync_stage()
+            else:
+                # Pipeline complete
+                self.log_panel.add_message("info", "Processing pipeline completed")
+                self.progress_section.stop_processing(success=True, message="Pipeline completed successfully")
+                self._set_running_state(False)
+        except Exception as e:
+            # Stage failed to start - error already logged and progress stopped by _run_*_stage methods
+            # Nothing more to do, just catch the exception to prevent crash
+            pass

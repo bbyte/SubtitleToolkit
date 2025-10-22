@@ -256,20 +256,26 @@ def parse_time(time_str):
         return 0
 
 
-def extract_subtitle(mkv_file, track_index, output_file):
+def extract_subtitle(mkv_file, track_index, output_file, overwrite=False):
     """Extract subtitle track from MKV file with progress."""
     duration = get_duration(mkv_file)
-    
+
     cmd = [
         "ffmpeg",
         "-i", str(mkv_file),
         "-map", f"0:{track_index}",
         "-c:s", "copy",
         str(output_file),
-        "-y",  # Overwrite output file if exists
+    ]
+
+    # Only add overwrite flag if explicitly requested
+    if overwrite:
+        cmd.append("-y")
+
+    cmd.extend([
         "-progress", "pipe:1",  # Output progress to stdout
         "-loglevel", "error"
-    ]
+    ])
     
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
@@ -334,12 +340,14 @@ def main():
     global jsonl_mode
     
     parser = argparse.ArgumentParser(description="Extract subtitles from MKV files")
-    parser.add_argument("path", nargs="?", default=".", 
+    parser.add_argument("path", nargs="?", default=".",
                         help="Directory containing MKV files or path to single MKV file (default: current directory)")
     parser.add_argument("-l", "--language", default="eng",
                         help="Language code for subtitle track (default: eng)")
     parser.add_argument("-o", "--output", default=None,
                         help="Output directory for extracted subtitles (default: same as input)")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Overwrite existing subtitle files (default: skip existing)")
     parser.add_argument("--jsonl", action="store_true",
                         help="Output structured JSONL events to stdout")
     
@@ -463,13 +471,22 @@ def main():
         else:
             # Use same directory as input
             output_file = mkv_file.with_suffix(".srt")
-        
+
+        # Check if output file already exists and skip if not overwriting
+        if output_file.exists() and not args.overwrite:
+            skip_msg = f"Skipping {mkv_file.name} - subtitle file already exists: {output_file.name}"
+            emit_jsonl("info", skip_msg, data={"file": str(mkv_file), "output_file": str(output_file), "reason": "already_exists"})
+            print_colored(f"  {Colors.YELLOW}⊘ Skipping - {output_file.name} already exists{Colors.ENDC}")
+            skipped_files.append({"file": str(mkv_file), "reason": "Output file already exists"})
+            print_colored("")
+            continue
+
         # Extract subtitle
         info_msg = f"Extracting track {track_index} from {mkv_file.name} to {output_file.name}"
         emit_jsonl("info", info_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file)})
         print_colored(f"  {Colors.CYAN}📝 Track {track_index} → {output_file.name}{Colors.ENDC}")
-        
-        if extract_subtitle(mkv_file, track_index, output_file):
+
+        if extract_subtitle(mkv_file, track_index, output_file, overwrite=args.overwrite):
             success_msg = f"Successfully extracted subtitle from {mkv_file.name}"
             emit_jsonl("info", success_msg, data={"file": str(mkv_file), "output_file": str(output_file)})
             print_colored(f"  {Colors.GREEN}✓ Successfully extracted!{Colors.ENDC}")

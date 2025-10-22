@@ -195,12 +195,29 @@ class ProviderConfigWidget(QWidget):
             self._widgets['base_url'].setPlaceholderText("http://localhost:1234/v1")
             form_layout.addRow("Base URL:", self._widgets['base_url'])
         
-        # Model selection
+        # Model selection with management buttons
+        model_layout = QHBoxLayout()
         self._widgets['default_model'] = QComboBox()
         self._widgets['default_model'].setEditable(True)
         self._populate_models()
-        form_layout.addRow("Default Model:", self._widgets['default_model'])
-        
+        model_layout.addWidget(self._widgets['default_model'], stretch=1)
+
+        # Add custom model button
+        add_model_btn = QPushButton("+")
+        add_model_btn.setToolTip("Add current model to custom models list")
+        add_model_btn.setMaximumWidth(30)
+        add_model_btn.clicked.connect(self._add_custom_model)
+        model_layout.addWidget(add_model_btn)
+
+        # Remove custom model button
+        remove_model_btn = QPushButton("-")
+        remove_model_btn.setToolTip("Remove selected model from custom models")
+        remove_model_btn.setMaximumWidth(30)
+        remove_model_btn.clicked.connect(self._remove_custom_model)
+        model_layout.addWidget(remove_model_btn)
+
+        form_layout.addRow("Default Model:", model_layout)
+
         # Advanced settings in collapsible section
         advanced_group = QGroupBox("Advanced Settings")
         advanced_group.setCheckable(True)
@@ -273,18 +290,115 @@ class ProviderConfigWidget(QWidget):
             elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 widget.valueChanged.connect(self.settings_changed.emit)
     
-    def _populate_models(self):
-        """Populate model dropdown with provider-specific models."""
-        models = []
-        
+    def _populate_models(self, custom_models: list = None):
+        """Populate model dropdown with provider-specific models and custom models."""
+        # Clear existing items
+        self._widgets['default_model'].clear()
+
+        # Get built-in models
+        builtin_models = []
         if self.provider == TranslationProvider.OPENAI:
-            models = SettingsSchema.get_openai_models()
+            builtin_models = SettingsSchema.get_openai_models()
         elif self.provider == TranslationProvider.ANTHROPIC:
-            models = SettingsSchema.get_anthropic_models()
+            builtin_models = SettingsSchema.get_anthropic_models()
         elif self.provider == TranslationProvider.LM_STUDIO:
-            models = ["local-model", "custom-model"]  # Placeholder
-        
-        self._widgets['default_model'].addItems(models)
+            builtin_models = ["local-model", "custom-model"]  # Placeholder
+
+        # Get custom models (from parameter or empty list)
+        if custom_models is None:
+            custom_models = []
+
+        # Add separator if we have both types
+        if builtin_models and custom_models:
+            # Add built-in models
+            self._widgets['default_model'].addItems(builtin_models)
+            # Add separator
+            self._widgets['default_model'].insertSeparator(len(builtin_models))
+            # Add custom models
+            for model in custom_models:
+                self._widgets['default_model'].addItem(f"★ {model}")
+        elif builtin_models:
+            self._widgets['default_model'].addItems(builtin_models)
+        elif custom_models:
+            for model in custom_models:
+                self._widgets['default_model'].addItem(f"★ {model}")
+
+    def _add_custom_model(self):
+        """Add the current text as a custom model."""
+        current_text = self._widgets['default_model'].currentText().strip()
+
+        # Remove star prefix if it exists
+        if current_text.startswith("★ "):
+            current_text = current_text[2:].strip()
+
+        if not current_text:
+            QMessageBox.warning(self, "Invalid Model", "Please enter a model name")
+            return
+
+        # Get current custom models from settings
+        current_settings = self.get_settings()
+        custom_models = current_settings.get('custom_models', [])
+
+        # Check if already exists
+        if current_text in custom_models:
+            QMessageBox.information(self, "Already Exists", f"Model '{current_text}' already in custom models")
+            return
+
+        # Add to list
+        custom_models.append(current_text)
+
+        # Repopulate dropdown
+        self._populate_models(custom_models)
+
+        # Select the newly added model
+        for i in range(self._widgets['default_model'].count()):
+            item_text = self._widgets['default_model'].itemText(i)
+            if item_text == f"★ {current_text}" or item_text == current_text:
+                self._widgets['default_model'].setCurrentIndex(i)
+                break
+
+        # Emit settings changed
+        self.settings_changed.emit()
+
+        QMessageBox.information(self, "Model Added", f"Custom model '{current_text}' added successfully")
+
+    def _remove_custom_model(self):
+        """Remove the selected model from custom models."""
+        current_text = self._widgets['default_model'].currentText().strip()
+
+        # Remove star prefix if it exists
+        if current_text.startswith("★ "):
+            current_text = current_text[2:].strip()
+
+        if not current_text:
+            return
+
+        # Get current custom models from settings
+        current_settings = self.get_settings()
+        custom_models = current_settings.get('custom_models', [])
+
+        # Check if model is in custom models
+        if current_text not in custom_models:
+            QMessageBox.warning(self, "Not a Custom Model",
+                              "This is a built-in model and cannot be removed.\nOnly custom models (marked with ★) can be removed.")
+            return
+
+        # Confirm removal
+        reply = QMessageBox.question(self, "Confirm Removal",
+                                     f"Remove custom model '{current_text}'?",
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            custom_models.remove(current_text)
+
+            # Repopulate dropdown
+            self._populate_models(custom_models)
+
+            # Emit settings changed
+            self.settings_changed.emit()
+
+            QMessageBox.information(self, "Model Removed", f"Custom model '{current_text}' removed successfully")
     
     def _test_connection(self):
         """Test the API connection."""
@@ -366,13 +480,31 @@ class ProviderConfigWidget(QWidget):
     
     def load_settings(self, settings: Dict[str, Any]):
         """Load settings into this provider widget."""
+        # Get custom models first to repopulate dropdown
+        custom_models = settings.get('custom_models', [])
+        self._populate_models(custom_models)
+
         for key, widget in self._widgets.items():
             if key in settings:
                 value = settings[key]
                 if isinstance(widget, QLineEdit):
                     widget.setText(str(value))
                 elif isinstance(widget, QComboBox):
-                    widget.setCurrentText(str(value))
+                    # Remove star prefix if present
+                    text_value = str(value)
+                    if text_value.startswith("★ "):
+                        text_value = text_value[2:].strip()
+                    # Try to find the model (with or without star)
+                    index = widget.findText(text_value)
+                    if index >= 0:
+                        widget.setCurrentIndex(index)
+                    else:
+                        # Try with star prefix
+                        index = widget.findText(f"★ {text_value}")
+                        if index >= 0:
+                            widget.setCurrentIndex(index)
+                        else:
+                            widget.setCurrentText(text_value)
                 elif isinstance(widget, QSpinBox):
                     widget.setValue(int(value))
                 elif isinstance(widget, QDoubleSpinBox):
@@ -381,17 +513,30 @@ class ProviderConfigWidget(QWidget):
     def get_settings(self) -> Dict[str, Any]:
         """Get settings from this provider widget."""
         settings = {}
-        
+
+        # Collect custom models from dropdown
+        custom_models = []
+        for i in range(self._widgets['default_model'].count()):
+            item_text = self._widgets['default_model'].itemText(i)
+            if item_text.startswith("★ "):
+                custom_models.append(item_text[2:].strip())
+
+        settings['custom_models'] = custom_models
+
         for key, widget in self._widgets.items():
             if isinstance(widget, QLineEdit):
                 settings[key] = widget.text()
             elif isinstance(widget, QComboBox):
-                settings[key] = widget.currentText()
+                # Remove star prefix if present
+                text = widget.currentText()
+                if text.startswith("★ "):
+                    text = text[2:].strip()
+                settings[key] = text
             elif isinstance(widget, QSpinBox):
                 settings[key] = widget.value()
             elif isinstance(widget, QDoubleSpinBox):
                 settings[key] = widget.value()
-        
+
         return settings
     
     def validate_settings(self) -> ValidationResult:

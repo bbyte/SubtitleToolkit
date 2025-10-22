@@ -68,6 +68,7 @@ class SettingsSchema:
                 "openai": {
                     "api_key": "",
                     "default_model": "gpt-4o-mini",
+                    "custom_models": [],  # User-added custom models
                     "temperature": 0.3,
                     "max_tokens": 4096,
                     "timeout": 30,
@@ -75,6 +76,7 @@ class SettingsSchema:
                 "anthropic": {
                     "api_key": "",
                     "default_model": "claude-3-haiku-20240307",
+                    "custom_models": [],  # User-added custom models
                     "temperature": 0.3,
                     "max_tokens": 4096,
                     "timeout": 30,
@@ -83,6 +85,7 @@ class SettingsSchema:
                     "base_url": "http://localhost:1234/v1",
                     "api_key": "lm-studio",
                     "default_model": "local-model",
+                    "custom_models": [],  # User-added custom models
                     "temperature": 0.3,
                     "max_tokens": 4096,
                     "timeout": 30,
