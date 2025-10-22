@@ -151,6 +151,7 @@ class ScriptRunnerSignals(QObject):
     process_failed = Signal(Stage, str)  # stage, error_message
     
     # Event signals (from JSONL stream)
+    debug_received = Signal(Stage, str)  # stage, debug message
     info_received = Signal(Stage, str)  # stage, message
     progress_updated = Signal(Stage, int, str)  # stage, percentage, message
     warning_received = Signal(Stage, str)  # stage, message
