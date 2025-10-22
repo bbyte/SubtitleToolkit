@@ -166,3 +166,5 @@ dmypy.json
 *.avi
 test_files/
 output/
+
+.claude/settings.local.json
