@@ -167,16 +167,16 @@ class ScriptRunner(QObject):
         is_valid, error_msg = config.validate()
         if not is_valid:
             # Add detailed debugging information
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: TRANSLATION_VALIDATION_FAILED: {error_msg}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CONFIG_PROVIDER: {config.provider}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CONFIG_MODEL: {config.model}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CONFIG_API_KEY_SET: {'Yes' if config.api_key else 'No'}")
+            self.signals.debug_received.emit(self._current_stage, f"TRANSLATION_VALIDATION_FAILED: {error_msg}")
+            self.signals.debug_received.emit(self._current_stage, f"CONFIG_PROVIDER: {config.provider}")
+            self.signals.debug_received.emit(self._current_stage, f"CONFIG_MODEL: {config.model}")
+            self.signals.debug_received.emit(self._current_stage, f"CONFIG_API_KEY_SET: {'Yes' if config.api_key else 'No'}")
             if config.api_key:
                 # Show masked API key for debugging
                 masked_key = f"{config.api_key[:8]}***{config.api_key[-4:]}" if len(config.api_key) > 12 else "***"
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: CONFIG_API_KEY_MASKED: {masked_key}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CONFIG_INPUT_FILES: {config.input_files}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CONFIG_INPUT_DIRECTORY: {config.input_directory}")
+                self.signals.debug_received.emit(self._current_stage, f"CONFIG_API_KEY_MASKED: {masked_key}")
+            self.signals.debug_received.emit(self._current_stage, f"CONFIG_INPUT_FILES: {config.input_files}")
+            self.signals.debug_received.emit(self._current_stage, f"CONFIG_INPUT_DIRECTORY: {config.input_directory}")
             
             # Reset stage since we're failing
             self._current_stage = None
@@ -284,10 +284,10 @@ class ScriptRunner(QObject):
                     else:
                         masked_exports.append(f'export {key}="{value}"')
                 masked_env_exports = " && ".join(masked_exports)
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: ENV_EXPORTS: {masked_env_exports}")
+                self.signals.debug_received.emit(self._current_stage, f"ENV_EXPORTS: {masked_env_exports}")
             
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: SHELL_COMMAND: {shell_command}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: FULL_COMMAND: Using shell execution with environment variables")
+            self.signals.debug_received.emit(self._current_stage, f"SHELL_COMMAND: {shell_command}")
+            self.signals.debug_received.emit(self._current_stage, f"FULL_COMMAND: Using shell execution with environment variables")
         
         # Connect signals with queued connections for thread safety
         process.readyReadStandardOutput.connect(self._on_stdout_ready)
@@ -310,9 +310,9 @@ class ScriptRunner(QObject):
         
         # Emit debug info to UI
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Executing command: {command_str}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Working directory: {self._script_dir}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Environment variables: {len(env_vars)} custom vars")
+            self.signals.debug_received.emit(self._current_stage, f"Executing command: {command_str}")
+            self.signals.debug_received.emit(self._current_stage, f"Working directory: {self._script_dir}")
+            self.signals.debug_received.emit(self._current_stage, f"Environment variables: {len(env_vars)} custom vars")
             
             # Show ALL environment variables (including system ones for debugging)
             full_env = QProcess.systemEnvironment()
@@ -323,28 +323,28 @@ class ScriptRunner(QObject):
                         # This is one of our custom env vars
                         if 'api_key' in key.lower() or 'key' in key.lower():
                             masked_value = f"{value[:8]}***{value[-4:]}" if len(value) > 12 else "***"
-                            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CUSTOM_ENV: {key}={masked_value}")
+                            self.signals.debug_received.emit(self._current_stage, f"CUSTOM_ENV: {key}={masked_value}")
                         else:
-                            self.signals.debug_received.emit(self._current_stage, f"DEBUG: CUSTOM_ENV: {key}={value}")
+                            self.signals.debug_received.emit(self._current_stage, f"CUSTOM_ENV: {key}={value}")
             
             # Show environment variable details (without showing actual API keys)
             for key, value in env_vars.items():
                 if 'api_key' in key.lower() or 'key' in key.lower():
                     masked_value = f"{value[:8]}***{value[-4:]}" if len(value) > 12 else "***"
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: SET_ENV: {key}={masked_value}")
+                    self.signals.debug_received.emit(self._current_stage, f"SET_ENV: {key}={masked_value}")
                 else:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: SET_ENV: {key}={value}")
+                    self.signals.debug_received.emit(self._current_stage, f"SET_ENV: {key}={value}")
             
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Starting process with PID will be assigned...")
+            self.signals.debug_received.emit(self._current_stage, f"Starting process with PID will be assigned...")
         
         self._process_start_time = datetime.now()
         
         # Add immediate debugging right before starting process
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: About to start: {command[0]} with {len(command)-1} arguments")
+            self.signals.debug_received.emit(self._current_stage, f"About to start: {command[0]} with {len(command)-1} arguments")
             # Show all arguments for debugging
             for i, arg in enumerate(command):
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: ARG[{i}]: {repr(arg)}")
+                self.signals.debug_received.emit(self._current_stage, f"ARG[{i}]: {repr(arg)}")
         
         # Start the shell process (program and arguments already set above)
         process.start()
@@ -353,13 +353,13 @@ class ScriptRunner(QObject):
             error_msg = f"Failed to start process: {process.errorString()}"
             self._logger.error(error_msg)
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: FAILED TO START: {error_msg}")
+                self.signals.debug_received.emit(self._current_stage, f"FAILED TO START: {error_msg}")
             self._cleanup_process()
             raise RuntimeError(error_msg)
         
         # Add debugging right after successful start
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process started successfully, waiting for first output...")
+            self.signals.debug_received.emit(self._current_stage, f"Process started successfully, waiting for first output...")
             
             # Give the process a very short time to produce initial output or fail
             if process.waitForFinished(100):  # Wait 100ms for quick failures
@@ -368,11 +368,11 @@ class ScriptRunner(QObject):
                 exit_code = process.exitCode()
                 
                 if stdout_data:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: QUICK_STDOUT: {repr(stdout_data)}")
+                    self.signals.debug_received.emit(self._current_stage, f"QUICK_STDOUT: {repr(stdout_data)}")
                 if stderr_data:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: QUICK_STDERR: {repr(stderr_data)}")
+                    self.signals.debug_received.emit(self._current_stage, f"QUICK_STDERR: {repr(stderr_data)}")
                 if exit_code != 0:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: QUICK_EXIT_CODE: {exit_code}")
+                    self.signals.debug_received.emit(self._current_stage, f"QUICK_EXIT_CODE: {exit_code}")
         
         return process
     
@@ -384,8 +384,8 @@ class ScriptRunner(QObject):
             # Get process ID for debugging
             if self._current_process:
                 process_id = self._current_process.processId()
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process started with PID: {process_id}")
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process state: {self._current_process.state()}")
+                self.signals.debug_received.emit(self._current_stage, f"Process started with PID: {process_id}")
+                self.signals.debug_received.emit(self._current_stage, f"Process state: {self._current_process.state()}")
                 
                 # Set up periodic output checking for early crash detection
                 self._setup_output_monitoring()
@@ -407,7 +407,7 @@ class ScriptRunner(QObject):
         if not self._current_process or not self._current_stage or self._final_output_read:
             return
         
-        self.signals.debug_received.emit(self._current_stage, "DEBUG: Process about to close - reading final output")
+        self.signals.debug_received.emit(self._current_stage, "Process about to close - reading final output")
         
         # Stop monitoring immediately
         if hasattr(self, '_output_monitor_timer'):
@@ -440,7 +440,7 @@ class ScriptRunner(QObject):
         except Exception as e:
             # Handle any reading errors gracefully
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: OUTPUT_CHECK_ERROR: {str(e)}")
+                self.signals.debug_received.emit(self._current_stage, f"OUTPUT_CHECK_ERROR: {str(e)}")
     
     def _on_stdout_ready(self):
         """Handle stdout data from process."""
@@ -463,7 +463,7 @@ class ScriptRunner(QObject):
         except Exception as e:
             # Handle broken pipe or closed process gracefully
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: STDOUT_READ_ERROR: {str(e)}")
+                self.signals.debug_received.emit(self._current_stage, f"STDOUT_READ_ERROR: {str(e)}")
             return
         
         # Emit raw output signal
@@ -472,13 +472,13 @@ class ScriptRunner(QObject):
         # Send ALL stdout to debug log immediately - don't filter anything
         if self._current_stage and data:
             # Log the raw data first
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: RAW_STDOUT: {repr(data)}")
+            self.signals.debug_received.emit(self._current_stage, f"RAW_STDOUT: {repr(data)}")
             
             # Then split by lines for readability
             lines = data.split('\n')
             for i, line in enumerate(lines):
                 # Include empty lines to preserve structure
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: STDOUT[{i}]: {repr(line)}")
+                self.signals.debug_received.emit(self._current_stage, f"STDOUT[{i}]: {repr(line)}")
         
         # Parse JSONL events
         try:
@@ -489,13 +489,13 @@ class ScriptRunner(QObject):
                     self.signals.parse_error.emit(data, error)
                     # Also send parse errors to debug log
                     if self._current_stage:
-                        self.signals.debug_received.emit(self._current_stage, f"DEBUG: PARSE ERROR: {error}")
+                        self.signals.debug_received.emit(self._current_stage, f"PARSE ERROR: {error}")
                     
         except Exception as e:
             self._logger.error(f"Error processing stdout: {e}")
             self.signals.parse_error.emit(data, str(e))
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: PROCESSING ERROR: {str(e)}")
+                self.signals.debug_received.emit(self._current_stage, f"PROCESSING ERROR: {str(e)}")
     
     def _on_stderr_ready(self):
         """Handle stderr data from process."""
@@ -511,7 +511,7 @@ class ScriptRunner(QObject):
         except Exception as e:
             # Handle broken pipe or closed process gracefully
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: STDERR_READ_ERROR: {str(e)}")
+                self.signals.debug_received.emit(self._current_stage, f"STDERR_READ_ERROR: {str(e)}")
             return
         
         # Emit stderr signal
@@ -520,13 +520,13 @@ class ScriptRunner(QObject):
         # Send ALL stderr to UI for debugging - don't filter anything
         if self._current_stage and data:
             # Log the raw data first
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: RAW_STDERR: {repr(data)}")
+            self.signals.debug_received.emit(self._current_stage, f"RAW_STDERR: {repr(data)}")
             
             # Then split by lines for readability
             lines = data.split('\n')
             for i, line in enumerate(lines):
                 # Include empty lines to preserve structure
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: STDERR[{i}]: {repr(line)}")
+                self.signals.debug_received.emit(self._current_stage, f"STDERR[{i}]: {repr(line)}")
         
         # Log stderr data
         self._logger.warning(f"Process stderr: {data}")
@@ -537,14 +537,14 @@ class ScriptRunner(QObject):
             return
             
         if self._completion_handled:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process finished signal received but completion already handled - ignoring (exit_code: {exit_code}, status: {exit_status})")
+            self.signals.debug_received.emit(self._current_stage, f"Process finished signal received but completion already handled - ignoring (exit_code: {exit_code}, status: {exit_status})")
             return
         
         # Mark completion as handled to prevent duplicate processing
         self._completion_handled = True
         self._process_completing = True
         
-        self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process finished signal received - exit_code: {exit_code}, status: {exit_status} [HANDLING]")
+        self.signals.debug_received.emit(self._current_stage, f"Process finished signal received - exit_code: {exit_code}, status: {exit_status} [HANDLING]")
         
         # Stop output monitoring immediately to prevent race conditions
         if hasattr(self, '_output_monitor_timer'):
@@ -574,7 +574,7 @@ class ScriptRunner(QObject):
                 
                 if stdout_data.size() > 0:
                     data = stdout_data.data().decode('utf-8', errors='replace')
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: FINAL_STDOUT_A{attempt}: {repr(data)}")
+                    self.signals.debug_received.emit(self._current_stage, f"FINAL_STDOUT_A{attempt}: {repr(data)}")
                     
                     # Process any remaining JSONL events
                     try:
@@ -584,18 +584,18 @@ class ScriptRunner(QObject):
                             elif error:
                                 self.signals.parse_error.emit(data, error)
                     except Exception as e:
-                        self.signals.debug_received.emit(self._current_stage, f"DEBUG: FINAL_PARSE_ERROR_A{attempt}: {str(e)}")
+                        self.signals.debug_received.emit(self._current_stage, f"FINAL_PARSE_ERROR_A{attempt}: {str(e)}")
                 
                 if stderr_data.size() > 0:
                     data = stderr_data.data().decode('utf-8', errors='replace')
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: FINAL_STDERR_A{attempt}: {repr(data)}")
+                    self.signals.debug_received.emit(self._current_stage, f"FINAL_STDERR_A{attempt}: {repr(data)}")
                 
                 # If no more data, break early
                 if stdout_data.size() == 0 and stderr_data.size() == 0:
                     break
                     
         except Exception as e:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: FINAL_READ_ERROR: {str(e)}")
+            self.signals.debug_received.emit(self._current_stage, f"FINAL_READ_ERROR: {str(e)}")
     
     def _complete_process_handling(self, exit_code: int, exit_status: QProcess.ExitStatus):
         """Complete the process handling after ensuring all output is read."""
@@ -603,11 +603,11 @@ class ScriptRunner(QObject):
             return
             
         # Add debug to show we're in completion handling
-        self.signals.debug_received.emit(self._current_stage, f"DEBUG: _complete_process_handling called - exit_code: {exit_code}, status: {exit_status}")
+        self.signals.debug_received.emit(self._current_stage, f"_complete_process_handling called - exit_code: {exit_code}, status: {exit_status}")
         
         if not self._completion_handled:
             # Sanity check - this should not happen if our logic is correct
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: _complete_process_handling called but completion not marked as handled - this indicates a logic error")
+            self.signals.debug_received.emit(self._current_stage, f"_complete_process_handling called but completion not marked as handled - this indicates a logic error")
             return
         
         # Flush any remaining parser buffer
@@ -620,7 +620,7 @@ class ScriptRunner(QObject):
         except Exception as e:
             self._logger.error(f"Error flushing parser buffer: {e}")
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: PARSER_FLUSH_ERROR: {str(e)}")
+                self.signals.debug_received.emit(self._current_stage, f"PARSER_FLUSH_ERROR: {str(e)}")
         
         # Create process result
         duration = 0.0
@@ -645,13 +645,13 @@ class ScriptRunner(QObject):
         sigterm_after_success = (exit_code == 15 and (has_outputs or has_successful_files))
         
         if sigterm_after_success:
-            self.signals.debug_received.emit(self._current_stage, "DEBUG: SIGTERM detected but process produced valid outputs - broken pipe issue detected, treating as success")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: SIGTERM_OVERRIDE - has_outputs: {has_outputs}, has_successful_files: {has_successful_files}")
+            self.signals.debug_received.emit(self._current_stage, "SIGTERM detected but process produced valid outputs - broken pipe issue detected, treating as success")
+            self.signals.debug_received.emit(self._current_stage, f"SIGTERM_OVERRIDE - has_outputs: {has_outputs}, has_successful_files: {has_successful_files}")
         elif exit_code == 15:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: SIGTERM without valid outputs - summary keys: {list(summary.keys()) if summary else 'None'}")
+            self.signals.debug_received.emit(self._current_stage, f"SIGTERM without valid outputs - summary keys: {list(summary.keys()) if summary else 'None'}")
             if summary.get('result_data'):
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: SIGTERM result_data keys: {list(summary['result_data'].keys())}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: SIGTERM_DETAILS - has_outputs: {has_outputs}, has_successful_files: {has_successful_files}")
+                self.signals.debug_received.emit(self._current_stage, f"SIGTERM result_data keys: {list(summary['result_data'].keys())}")
+            self.signals.debug_received.emit(self._current_stage, f"SIGTERM_DETAILS - has_outputs: {has_outputs}, has_successful_files: {has_successful_files}")
         
         # Create result object
         result = ProcessResult(
@@ -688,38 +688,38 @@ class ScriptRunner(QObject):
         
         # Send completion debug info to UI
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: FINAL_RESULT - success: {result.success}, exit_code: {result.exit_code}")
+            self.signals.debug_received.emit(self._current_stage, f"FINAL_RESULT - success: {result.success}, exit_code: {result.exit_code}")
             if sigterm_after_success:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: SIGTERM_OVERRIDE applied - treated as success")
+                self.signals.debug_received.emit(self._current_stage, f"SIGTERM_OVERRIDE applied - treated as success")
         
         # Send debug info to UI
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process completed {status} in {duration:.1f}s")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Exit code: {exit_code}, Exit status: {exit_status}")
+            self.signals.debug_received.emit(self._current_stage, f"Process completed {status} in {duration:.1f}s")
+            self.signals.debug_received.emit(self._current_stage, f"Exit code: {exit_code}, Exit status: {exit_status}")
             
             if result.output_files:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Output files: {result.output_files}")
+                self.signals.debug_received.emit(self._current_stage, f"Output files: {result.output_files}")
             else:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: No output files found in result")
+                self.signals.debug_received.emit(self._current_stage, f"No output files found in result")
             
             # Always show file processing stats, even if zero
             files_processed = getattr(result, 'files_processed', 0)
             files_successful = getattr(result, 'files_successful', 0)  
             files_failed = getattr(result, 'files_failed', 0)
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Files processed: {files_processed}, Successful: {files_successful}, Failed: {files_failed}")
+            self.signals.debug_received.emit(self._current_stage, f"Files processed: {files_processed}, Successful: {files_successful}, Failed: {files_failed}")
             
             # Show result data structure for debugging
             if result.result_data:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Result data keys: {list(result.result_data.keys())}")
+                self.signals.debug_received.emit(self._current_stage, f"Result data keys: {list(result.result_data.keys())}")
             else:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: No result data available")
+                self.signals.debug_received.emit(self._current_stage, f"No result data available")
                 
             # Show success determination logic
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Success determination - apparent_success: {apparent_success}, sigterm_after_success: {sigterm_after_success}")
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Final result.success: {result.success}")
+            self.signals.debug_received.emit(self._current_stage, f"Success determination - apparent_success: {apparent_success}, sigterm_after_success: {sigterm_after_success}")
+            self.signals.debug_received.emit(self._current_stage, f"Final result.success: {result.success}")
             
             # Show completion handling status
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: Completion handling finished - about to cleanup and emit process_finished signal")
+            self.signals.debug_received.emit(self._current_stage, f"Completion handling finished - about to cleanup and emit process_finished signal")
 
         # Clean up process state FIRST to ensure is_running returns False
         # for any subsequent stage checks triggered by the process_finished signal
@@ -736,7 +736,7 @@ class ScriptRunner(QObject):
         if self._completion_handled:
             if self._current_stage:
                 exit_code = self._current_process.exitCode() if self._current_process else "N/A"
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Ignoring error signal - completion already handled (error: {error}, exit_code: {exit_code}) [RACE CONDITION PREVENTED]")
+                self.signals.debug_received.emit(self._current_stage, f"Ignoring error signal - completion already handled (error: {error}, exit_code: {exit_code}) [RACE CONDITION PREVENTED]")
             return
         
         # Mark completion as handled to prevent duplicate processing
@@ -760,7 +760,7 @@ class ScriptRunner(QObject):
         
         if self._current_stage:
             # Send detailed error information to debug log
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: PROCESS ERROR: {error_msg}")
+            self.signals.debug_received.emit(self._current_stage, f"PROCESS ERROR: {error_msg}")
             
             # Get more crash details
             if self._current_process:
@@ -770,44 +770,44 @@ class ScriptRunner(QObject):
                     final_stderr = self._current_process.readAllStandardError().data().decode('utf-8', errors='replace')
                     
                     if final_stdout:
-                        self.signals.debug_received.emit(self._current_stage, f"DEBUG: CRASH_FINAL_STDOUT: {repr(final_stdout)}")
+                        self.signals.debug_received.emit(self._current_stage, f"CRASH_FINAL_STDOUT: {repr(final_stdout)}")
                     if final_stderr:
-                        self.signals.debug_received.emit(self._current_stage, f"DEBUG: CRASH_FINAL_STDERR: {repr(final_stderr)}")
+                        self.signals.debug_received.emit(self._current_stage, f"CRASH_FINAL_STDERR: {repr(final_stderr)}")
                     
                     # If no stderr captured, this might be the issue
                     if not final_stderr:
-                        self.signals.debug_received.emit(self._current_stage, f"DEBUG: NO STDERR CAPTURED - This might be the root cause!")
+                        self.signals.debug_received.emit(self._current_stage, f"NO STDERR CAPTURED - This might be the root cause!")
                         
                 except Exception as e:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: Error reading final output: {e}")
+                    self.signals.debug_received.emit(self._current_stage, f"Error reading final output: {e}")
                 
                 # Get comprehensive process information
                 exit_code = self._current_process.exitCode()
                 exit_status = self._current_process.exitStatus()
                 process_state = self._current_process.state()
                 
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process exit code: {exit_code}")
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process exit status: {exit_status}")
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: Process state: {process_state}")
+                self.signals.debug_received.emit(self._current_stage, f"Process exit code: {exit_code}")
+                self.signals.debug_received.emit(self._current_stage, f"Process exit status: {exit_status}")
+                self.signals.debug_received.emit(self._current_stage, f"Process state: {process_state}")
                 
                 # Interpret exit codes for better debugging
                 if exit_code == 15:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: EXIT CODE 15 = SIGTERM - Process was terminated")
+                    self.signals.debug_received.emit(self._current_stage, f"EXIT CODE 15 = SIGTERM - Process was terminated")
                 elif exit_code == 9:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: EXIT CODE 9 = SIGKILL - Process was forcibly killed")
+                    self.signals.debug_received.emit(self._current_stage, f"EXIT CODE 9 = SIGKILL - Process was forcibly killed")
                 elif exit_code == 139:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: EXIT CODE 139 = SIGSEGV - Segmentation fault")
+                    self.signals.debug_received.emit(self._current_stage, f"EXIT CODE 139 = SIGSEGV - Segmentation fault")
                 elif exit_code == 2:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: EXIT CODE 2 = File not found or permission denied")
+                    self.signals.debug_received.emit(self._current_stage, f"EXIT CODE 2 = File not found or permission denied")
                 elif exit_code == 1:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: EXIT CODE 1 = General error")
+                    self.signals.debug_received.emit(self._current_stage, f"EXIT CODE 1 = General error")
                 elif exit_code != 0:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: Non-zero exit code indicates error")
+                    self.signals.debug_received.emit(self._current_stage, f"Non-zero exit code indicates error")
                     
                 # Try to get system error information
                 error_string = self._current_process.errorString()
                 if error_string:
-                    self.signals.debug_received.emit(self._current_stage, f"DEBUG: System error string: {error_string}")
+                    self.signals.debug_received.emit(self._current_stage, f"System error string: {error_string}")
             
             # Clean up first, then emit signal to ensure is_running returns False
             current_stage_for_signal = self._current_stage
@@ -864,7 +864,7 @@ class ScriptRunner(QObject):
         
         # Add debug info - this helps track if we're terminating the process ourselves
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: MANUAL_TERMINATION_REQUESTED - calling terminate() on process")
+            self.signals.debug_received.emit(self._current_stage, f"MANUAL_TERMINATION_REQUESTED - calling terminate() on process")
         
         # Try graceful termination first
         self._current_process.terminate()
@@ -877,7 +877,7 @@ class ScriptRunner(QObject):
             self._termination_timer.stop()
             self._logger.info("Process terminated gracefully")
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: MANUAL_TERMINATION_COMPLETED_GRACEFULLY")
+                self.signals.debug_received.emit(self._current_stage, f"MANUAL_TERMINATION_COMPLETED_GRACEFULLY")
             return True
         
         # If graceful termination failed, force kill
@@ -892,19 +892,19 @@ class ScriptRunner(QObject):
         
         # Add debug info - this helps track if we're force killing the process ourselves
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: MANUAL_FORCE_KILL_REQUESTED - calling kill() on process")
+            self.signals.debug_received.emit(self._current_stage, f"MANUAL_FORCE_KILL_REQUESTED - calling kill() on process")
         
         self._current_process.kill()
         
         if self._current_process.waitForFinished(3000):  # 3 second timeout
             self._logger.info("Process force killed")
             if self._current_stage:
-                self.signals.debug_received.emit(self._current_stage, f"DEBUG: MANUAL_FORCE_KILL_COMPLETED")
+                self.signals.debug_received.emit(self._current_stage, f"MANUAL_FORCE_KILL_COMPLETED")
             return True
         
         self._logger.error("Failed to kill process")
         if self._current_stage:
-            self.signals.debug_received.emit(self._current_stage, f"DEBUG: MANUAL_FORCE_KILL_FAILED")
+            self.signals.debug_received.emit(self._current_stage, f"MANUAL_FORCE_KILL_FAILED")
         return False
     
     def _cleanup_process(self):
@@ -930,7 +930,7 @@ class ScriptRunner(QObject):
             except Exception as e:
                 # Signal disconnection might fail if already disconnected
                 if current_stage:
-                    self.signals.debug_received.emit(current_stage, f"DEBUG: Signal disconnection error (expected): {e}")
+                    self.signals.debug_received.emit(current_stage, f"Signal disconnection error (expected): {e}")
             
             # Skip final output reading in cleanup since it was already done in _read_final_output
             # This prevents any race conditions or additional delays
@@ -938,7 +938,7 @@ class ScriptRunner(QObject):
             # Ensure process is properly terminated before cleanup
             if self._current_process.state() == QProcess.Running:
                 if current_stage:
-                    self.signals.debug_received.emit(current_stage, f"DEBUG: Process still running during cleanup - terminating")
+                    self.signals.debug_received.emit(current_stage, f"Process still running during cleanup - terminating")
                 self._current_process.terminate()
                 if not self._current_process.waitForFinished(1000):  # Reduced timeout for cleanup
                     self._current_process.kill()
@@ -966,7 +966,7 @@ class ScriptRunner(QObject):
         
         # Add debug message to confirm cleanup completed
         if current_stage:
-            self.signals.debug_received.emit(current_stage, f"DEBUG: Process cleanup completed - is_running should now return False")
+            self.signals.debug_received.emit(current_stage, f"Process cleanup completed - is_running should now return False")
     
     def get_process_info(self) -> Dict[str, Any]:
         """Get information about the current process."""

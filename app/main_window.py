@@ -157,7 +157,11 @@ class MainWindow(QMainWindow):
         # Set splitter proportions
         splitter.setStretchFactor(0, 0)  # Progress section: no stretch
         splitter.setStretchFactor(1, 1)  # Tab widget: stretch to fill
-        
+
+        # Set initial sizes - make log/results panel take less vertical space
+        # Progress section: 120px (fixed), Log/Results: ~300px (half of previous size)
+        splitter.setSizes([120, 300])
+
         main_layout.addWidget(splitter)
         
         # Action buttons at bottom
@@ -950,7 +954,7 @@ class MainWindow(QMainWindow):
         translate_settings = self.stage_configurators.get_translate_config()
         
         # Debug: Show what we got from stage configurators
-        self.log_panel.add_message("debug", f"DEBUG: Stage configurator settings: {translate_settings}")
+        self.log_panel.add_message("debug", f"Stage configurator settings: {translate_settings}")
         
         # Get settings
         settings = self.config_manager.get_settings()
@@ -965,26 +969,26 @@ class MainWindow(QMainWindow):
         provider_config = translators_config.get(settings_provider, {})
 
         # Debug: Show what's in the config
-        self.log_panel.add_message("debug", f"DEBUG: translators_config keys: {list(translators_config.keys())}")
-        self.log_panel.add_message("debug", f"DEBUG: Looking for provider: {provider} (settings key: {settings_provider})")
-        self.log_panel.add_message("debug", f"DEBUG: provider_config keys: {list(provider_config.keys())}")
+        self.log_panel.add_message("debug", f"translators_config keys: {list(translators_config.keys())}")
+        self.log_panel.add_message("debug", f"Looking for provider: {provider} (settings key: {settings_provider})")
+        self.log_panel.add_message("debug", f"provider_config keys: {list(provider_config.keys())}")
         if 'api_key' in provider_config:
             masked = f"{provider_config['api_key'][:8]}***" if len(provider_config['api_key']) > 8 else "***"
-            self.log_panel.add_message("debug", f"DEBUG: provider_config has api_key: {masked}")
+            self.log_panel.add_message("debug", f"provider_config has api_key: {masked}")
 
         # Load API key with fallback to environment variables and .env files
         def get_api_key(provider: str) -> str:
             # First check UI field (from stage configurator)
             ui_api_key = translate_settings.get('api_key', '').strip()
             if ui_api_key:
-                self.log_panel.add_message("debug", "DEBUG: Using API key from UI field")
+                self.log_panel.add_message("debug", "Using API key from UI field")
                 return ui_api_key
 
             # Then check settings (from Settings dialog)
             settings_api_key = provider_config.get('api_key', '').strip()
-            self.log_panel.add_message("debug", f"DEBUG: Settings API key empty: {not bool(settings_api_key)}")
+            self.log_panel.add_message("debug", f"Settings API key empty: {not bool(settings_api_key)}")
             if settings_api_key:
-                self.log_panel.add_message("debug", "DEBUG: Using API key from Settings")
+                self.log_panel.add_message("debug", "Using API key from Settings")
                 return settings_api_key
 
             # Fallback to environment variables
@@ -999,12 +1003,12 @@ class MainWindow(QMainWindow):
             if provider in ['claude', 'anthropic']:
                 env_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
                 if env_key:
-                    self.log_panel.add_message("debug", "DEBUG: Using API key from environment variable")
+                    self.log_panel.add_message("debug", "Using API key from environment variable")
                     return env_key
             elif provider == 'openai':
                 env_key = os.getenv('OPENAI_API_KEY', '').strip()
                 if env_key:
-                    self.log_panel.add_message("debug", "DEBUG: Using API key from environment variable")
+                    self.log_panel.add_message("debug", "Using API key from environment variable")
                     return env_key
 
             return ''
@@ -1014,9 +1018,9 @@ class MainWindow(QMainWindow):
         # Debug: Show final API key (masked)
         if api_key:
             masked_key = f"{api_key[:8]}***{api_key[-4:]}" if len(api_key) > 12 else "***"
-            self.log_panel.add_message("debug", f"DEBUG: Using API key: {masked_key} for provider: {provider}")
+            self.log_panel.add_message("debug", f"Using API key: {masked_key} for provider: {provider}")
         else:
-            self.log_panel.add_message("debug", f"DEBUG: No API key found for provider: {provider}")
+            self.log_panel.add_message("debug", f"No API key found for provider: {provider}")
         
         # Determine if single file or directory mode
         from pathlib import Path
@@ -1108,13 +1112,13 @@ class MainWindow(QMainWindow):
             # First check UI-provided key (strip whitespace)
             ui_key_clean = ui_api_key.strip() if ui_api_key else ''
             if ui_key_clean:
-                self.log_panel.add_message("debug", "DEBUG: Sync using API key from UI field")
+                self.log_panel.add_message("debug", "Sync using API key from UI field")
                 return ui_key_clean
 
             # Then check settings
             settings_key = provider_config.get('api_key', '').strip()
             if settings_key:
-                self.log_panel.add_message("debug", "DEBUG: Sync using API key from Settings")
+                self.log_panel.add_message("debug", "Sync using API key from Settings")
                 return settings_key
 
             # Fallback to environment variables
@@ -1129,12 +1133,12 @@ class MainWindow(QMainWindow):
             if provider in ['claude', 'anthropic']:
                 env_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
                 if env_key:
-                    self.log_panel.add_message("debug", "DEBUG: Sync using API key from environment")
+                    self.log_panel.add_message("debug", "Sync using API key from environment")
                     return env_key
             elif provider == 'openai':
                 env_key = os.getenv('OPENAI_API_KEY', '').strip()
                 if env_key:
-                    self.log_panel.add_message("debug", "DEBUG: Sync using API key from environment")
+                    self.log_panel.add_message("debug", "Sync using API key from environment")
                     return env_key
 
             return ''
