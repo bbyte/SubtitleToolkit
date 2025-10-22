@@ -168,3 +168,4 @@ test_files/
 output/
 
 .claude/settings.local.json
+.vscode
