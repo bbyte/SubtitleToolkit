@@ -249,3 +249,79 @@ class StageToggles(QFrame):
                 "Requires: AI service for name matching\n"
                 "Output: Renamed subtitle files"
             ))
+    
+    def set_file_type_constraints(self, file_path: str) -> None:
+        """Configure stage availability based on selected file type."""
+        from pathlib import Path
+        
+        if not file_path:
+            # No file selected, restore defaults
+            self.set_stage_availability('extract', True)
+            self.set_stage_availability('translate', True)
+            self.set_stage_availability('sync', True)
+            self._restore_default_tooltips()
+            return
+        
+        file_obj = Path(file_path)
+        file_ext = file_obj.suffix.lower()
+        
+        if file_ext == '.srt':
+            # SRT file selected - extraction is not needed
+            self.set_stage_availability('extract', False)
+            self.extract_checkbox.setToolTip(self.tr(
+                "Extraction is not needed for SRT files.\n"
+                "SRT files are already extracted subtitle files."
+            ))
+            
+            # Translate and sync are available for SRT files
+            self.set_stage_availability('translate', True)
+            # Note: sync availability also depends on single file mode
+            if not self.sync_checkbox.isEnabled():
+                # Keep it disabled if it's already disabled due to single file mode
+                pass
+            else:
+                self.set_stage_availability('sync', True)
+                
+        elif file_ext in ['.mkv', '.mp4', '.avi']:
+            # Video file selected - all stages available (subject to single file mode)
+            self.set_stage_availability('extract', True)
+            self.set_stage_availability('translate', True)
+            # Sync availability depends on single file mode
+            if file_ext == '.mkv':
+                self.extract_checkbox.setToolTip(self.tr(
+                    "Extract subtitle tracks from MKV video files\n"
+                    "Requires: ffmpeg/ffprobe\n"
+                    "Output: .srt files"
+                ))
+            else:
+                self.extract_checkbox.setToolTip(self.tr(
+                    "Limited subtitle extraction support for {0} files\n"
+                    "MKV files have better subtitle support\n"
+                    "Requires: ffmpeg/ffprobe"
+                ).format(file_ext.upper()))
+        else:
+            # Unknown file type - restore defaults but with warning tooltips
+            self.set_stage_availability('extract', True)
+            self.set_stage_availability('translate', True)
+            self.set_stage_availability('sync', True)
+            self._restore_default_tooltips()
+    
+    def _restore_default_tooltips(self) -> None:
+        """Restore default tooltips for all checkboxes."""
+        self.extract_checkbox.setToolTip(self.tr(
+            "Extract subtitle tracks from MKV video files\n"
+            "Requires: ffmpeg/ffprobe\n"
+            "Output: .srt files"
+        ))
+        
+        self.translate_checkbox.setToolTip(self.tr(
+            "Translate SRT subtitle files using AI services\n"
+            "Requires: API keys (OpenAI/Claude/LM Studio)\n"
+            "Output: Translated .srt files"
+        ))
+        
+        self.sync_checkbox.setToolTip(self.tr(
+            "Intelligently rename SRT files to match video files\n"
+            "Requires: AI service for name matching\n"
+            "Output: Renamed subtitle files"
+        ))

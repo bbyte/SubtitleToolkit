@@ -97,11 +97,6 @@ class LogPanel(QFrame):
         self.clear_button.clicked.connect(self.clear)
         controls_layout.addWidget(self.clear_button)
         
-        # Export button
-        self.export_button = QPushButton(self.tr("Export..."))
-        self.export_button.clicked.connect(self._export_logs)
-        controls_layout.addWidget(self.export_button)
-        
         layout.addLayout(controls_layout)
         
         # Log display
@@ -260,34 +255,6 @@ class LogPanel(QFrame):
         # For now, we use absolute timestamps
         # This could be extended to show relative times like "2 minutes ago"
         pass
-    
-    def _export_logs(self) -> None:
-        """Export logs to file."""
-        from PySide6.QtWidgets import QFileDialog
-        
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Logs",
-            f"subtitletoolkit_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            "Text Files (*.txt);;All Files (*)"
-        )
-        
-        if filename:
-            try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(f"SubtitleToolkit Log Export\\n")
-                    f.write(f"Generated: {datetime.now().isoformat()}\\n")
-                    f.write(f"Total Messages: {len(self._messages)}\\n\\n")
-                    
-                    for message in self._messages:
-                        timestamp_str = message.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                        prefix = self._level_prefixes[message.level]
-                        f.write(f"[{timestamp_str}] {prefix} {message.message}\\n")
-                
-                self.add_message("info", f"Logs exported to {filename}")
-                
-            except Exception as e:
-                self.add_message("error", f"Failed to export logs: {str(e)}")
     
     def clear(self) -> None:
         """Clear all log messages."""

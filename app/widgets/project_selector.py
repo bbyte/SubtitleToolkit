@@ -6,12 +6,15 @@ that contains the video/subtitle files to be processed.
 """
 
 from pathlib import Path
+from typing import List, Tuple, Optional
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
     QFileDialog, QGroupBox, QFrame, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
+
+from app.utils.mkv_language_detector import MKVLanguageDetector, LanguageDetectionResult
 
 
 class ProjectSelector(QFrame):
@@ -29,12 +32,14 @@ class ProjectSelector(QFrame):
     directory_selected = Signal(str)  # Emitted when a valid directory is selected
     file_selected = Signal(str)      # Emitted when a valid file is selected
     selection_cleared = Signal()     # Emitted when selection is cleared
+    languages_detected = Signal(object)  # Emitted when subtitle languages are detected (LanguageDetectionResult)
     
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
         
         self._selected_path = ""
         self._is_directory_mode = True  # Default to directory mode
+        self._last_language_detection = None  # Store last language detection result
         self._setup_ui()
         self._connect_signals()
     
@@ -255,8 +260,8 @@ class ProjectSelector(QFrame):
             
             # Create status message based on file type
             if file_ext == '.mkv':
-                status_message = self.tr("MKV video file ({0}) - can extract subtitles").format(size_str)
-                self._show_status("info", status_message)
+                # For MKV files, detect available subtitle languages
+                self._detect_languages_in_mkv(file_path, size_str)
             elif file_ext in ['.mp4', '.avi']:
                 status_message = self.tr("{0} video file ({1}) - limited processing options").format(file_ext.upper(), size_str)
                 self._show_status("warning", status_message)
@@ -308,6 +313,7 @@ class ProjectSelector(QFrame):
     def _clear_selection(self) -> None:
         """Clear the selected path."""
         self._selected_path = ""
+        self._last_language_detection = None  # Clear language detection result
         self.path_edit.clear()
         self.clear_button.setEnabled(False)
         self.status_label.hide()
@@ -348,6 +354,10 @@ class ProjectSelector(QFrame):
             if status_parts:
                 status_message = f"Found: {', '.join(status_parts)}"
                 self._show_status("info", status_message)
+                
+                # If there are MKV files, detect available subtitle languages
+                if mkv_files:
+                    self._detect_languages_in_directory(directory_path)
             else:
                 self._show_status("warning", 
                     "No video or subtitle files found. "
@@ -355,6 +365,76 @@ class ProjectSelector(QFrame):
                 
         except Exception as e:
             self._show_status("error", f"Error analyzing directory: {str(e)}")
+    
+    def _detect_languages_in_mkv(self, file_path: Path, size_str: str) -> None:
+        """Detect available subtitle languages in a single MKV file."""
+        try:
+            # Perform language detection
+            detection_result = MKVLanguageDetector.detect_languages_in_path(file_path)
+            
+            # Store the result
+            self._last_language_detection = detection_result
+            
+            # Emit the detection result
+            self.languages_detected.emit(detection_result)
+            
+            # Update status message based on detection results
+            if detection_result.errors:
+                error_msg = "; ".join(detection_result.errors[:2])  # Show first 2 errors
+                status_message = self.tr("MKV file ({0}) - Error detecting languages: {1}").format(size_str, error_msg)
+                self._show_status("warning", status_message)
+            elif not detection_result.available_languages:
+                status_message = self.tr("MKV file ({0}) - No subtitle tracks found").format(size_str)
+                self._show_status("warning", status_message)
+            else:
+                # Format language list for display
+                lang_names = [name for _, name in detection_result.available_languages[:5]]  # Show first 5
+                if len(detection_result.available_languages) > 5:
+                    lang_display = f"{', '.join(lang_names[:4])}, +{len(detection_result.available_languages)-4} more"
+                else:
+                    lang_display = ', '.join(lang_names)
+                
+                status_message = self.tr("MKV file ({0}) - Subtitles: {1}").format(size_str, lang_display)
+                self._show_status("info", status_message)
+                
+        except Exception as e:
+            error_msg = self.tr("Failed to detect languages: {0}").format(str(e))
+            status_message = self.tr("MKV file ({0}) - {1}").format(size_str, error_msg)
+            self._show_status("error", status_message)
+    
+    def _detect_languages_in_directory(self, directory_path: Path) -> None:
+        """Detect available subtitle languages in all MKV files in a directory."""
+        try:
+            # Perform language detection across all MKV files
+            detection_result = MKVLanguageDetector.detect_languages_in_path(directory_path)
+            
+            # Store the result
+            self._last_language_detection = detection_result
+            
+            # Emit the detection result
+            self.languages_detected.emit(detection_result)
+            
+            # Update status message to include language information
+            if detection_result.errors:
+                # Don't show language info if there were errors
+                pass  # Keep the existing status message
+            elif detection_result.available_languages:
+                # Format language list for display
+                lang_names = [name for _, name in detection_result.available_languages[:5]]  # Show first 5
+                if len(detection_result.available_languages) > 5:
+                    lang_display = f"{', '.join(lang_names[:4])}, +{len(detection_result.available_languages)-4} more"
+                else:
+                    lang_display = ', '.join(lang_names)
+                
+                # Append language info to existing status
+                current_status = self.status_label.text()
+                enhanced_status = f"{current_status} - Available subtitles: {lang_display}"
+                self._show_status("info", enhanced_status)
+                
+        except Exception as e:
+            # Don't fail the entire directory analysis if language detection fails
+            # Just log the error silently - the basic file counting already succeeded
+            pass
     
     def _show_status(self, level: str, message: str) -> None:
         """Show status message with appropriate styling."""
@@ -374,3 +454,23 @@ class ProjectSelector(QFrame):
     def is_selection_valid(self) -> bool:
         """Check if the current selection is valid."""
         return bool(self._selected_path and Path(self._selected_path).exists())
+    
+    def get_detected_languages(self) -> List[Tuple[str, str]]:
+        """
+        Get the list of detected subtitle languages from the last analysis.
+        
+        Returns:
+            List of (language_code, display_name) tuples, or empty list if no languages detected
+        """
+        if self._last_language_detection:
+            return self._last_language_detection.available_languages
+        return []
+    
+    def get_language_detection_result(self) -> Optional[LanguageDetectionResult]:
+        """
+        Get the complete language detection result from the last analysis.
+        
+        Returns:
+            LanguageDetectionResult object or None if no detection has been performed
+        """
+        return self._last_language_detection

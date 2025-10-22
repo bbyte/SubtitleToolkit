@@ -380,7 +380,7 @@ class ResultsPanel(QFrame):
                 
                 summary_lines.append("")
         
-        self.summary_text.setPlainText("\\n".join(summary_lines))
+        self.summary_text.setPlainText("\n".join(summary_lines))
     
     def add_result(self, file_path: str, result_type: str, status: str, message: str, details: Dict[str, Any] = None) -> None:
         """Add a new processing result."""

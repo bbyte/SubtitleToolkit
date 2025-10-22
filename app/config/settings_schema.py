@@ -97,6 +97,7 @@ class SettingsSchema:
                 "recent_source_languages": ["auto", "es", "fr", "de"],
                 "recent_target_languages": ["en", "es", "fr", "de", "bg"],
                 "language_detection_confidence": 0.8,
+                "default_extract_language": "eng",  # Default extraction language
             },
             "advanced": {
                 "max_concurrent_workers": 4,

@@ -5,7 +5,7 @@ Defines event models and Qt signals for real-time process communication.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any, List
 
@@ -239,7 +239,9 @@ class EventAggregator:
         if self.start_time and self.end_time:
             duration = (self.end_time - self.start_time).total_seconds()
         elif self.start_time:
-            duration = (datetime.now() - self.start_time).total_seconds()
+            # Make sure we compare timezone-aware datetimes
+            now = datetime.now(timezone.utc)
+            duration = (now - self.start_time).total_seconds()
         
         return {
             'stage': self.stage.value,

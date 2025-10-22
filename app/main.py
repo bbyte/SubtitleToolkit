@@ -301,6 +301,36 @@ class SubtitleToolkitApp(QApplication):
             QScrollBar::handle:vertical:hover {
                 background-color: #777;
             }
+            
+            QScrollBar:horizontal {
+                border: none;
+                background-color: #424242;
+                height: 12px;
+                margin: 0;
+            }
+            
+            QScrollBar::handle:horizontal {
+                background-color: #666;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+            
+            QScrollBar::handle:horizontal:hover {
+                background-color: #777;
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                border: none;
+                background: none;
+                width: 0;
+                height: 0;
+            }
+            
+            QScrollArea {
+                border: none;
+                background-color: #353535;
+            }
         """)
     
     def run(self) -> int:

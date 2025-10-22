@@ -721,11 +721,12 @@ class ScriptRunner(QObject):
             # Show completion handling status
             self.signals.info_received.emit(self._current_stage, f"DEBUG: Completion handling finished - about to cleanup and emit process_finished signal")
 
-        # Clean up FIRST to free the process slot
-        # This prevents the "Another process is already running" error when the next stage tries to start
+        # Clean up process state FIRST to ensure is_running returns False
+        # for any subsequent stage checks triggered by the process_finished signal
         self._cleanup_process()
 
-        # Emit result signal AFTER cleanup so that is_running returns False
+        # Now emit result signal - at this point is_running will return False
+        # allowing the next stage to start if needed
         self.signals.process_finished.emit(result)
     
     def _on_process_error(self, error: QProcess.ProcessError):
@@ -808,9 +809,12 @@ class ScriptRunner(QObject):
                 if error_string:
                     self.signals.info_received.emit(self._current_stage, f"DEBUG: System error string: {error_string}")
             
-            self.signals.process_failed.emit(self._current_stage, error_msg)
-        
-        self._cleanup_process()
+            # Clean up first, then emit signal to ensure is_running returns False
+            current_stage_for_signal = self._current_stage
+            self._cleanup_process()
+            
+            # Emit signal after cleanup
+            self.signals.process_failed.emit(current_stage_for_signal, error_msg)
     
     def _handle_event(self, event: Event):
         """
@@ -905,6 +909,8 @@ class ScriptRunner(QObject):
     
     def _cleanup_process(self):
         """Clean up process-related state."""
+        current_stage = self._current_stage  # Save for logging before clearing
+        
         self._termination_timer.stop()
         
         # Stop output monitoring
@@ -923,53 +929,44 @@ class ScriptRunner(QObject):
                     self._current_process.aboutToClose.disconnect()
             except Exception as e:
                 # Signal disconnection might fail if already disconnected
-                if self._current_stage:
-                    self.signals.info_received.emit(self._current_stage, f"DEBUG: Signal disconnection error (expected): {e}")
+                if current_stage:
+                    self.signals.info_received.emit(current_stage, f"DEBUG: Signal disconnection error (expected): {e}")
             
-            # Read any final output before terminating
-            if self._current_process.state() != QProcess.NotRunning:
-                try:
-                    # Give process time to flush output
-                    self._current_process.waitForFinished(100)
-                    
-                    # One final read attempt
-                    final_stdout = self._current_process.readAllStandardOutput()
-                    final_stderr = self._current_process.readAllStandardError()
-                    
-                    if final_stdout.size() > 0 and self._current_stage:
-                        data = final_stdout.data().decode('utf-8', errors='replace')
-                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CLEANUP_STDOUT: {repr(data)}")
-                        
-                    if final_stderr.size() > 0 and self._current_stage:
-                        data = final_stderr.data().decode('utf-8', errors='replace')
-                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CLEANUP_STDERR: {repr(data)}")
-                        
-                except Exception as e:
-                    if self._current_stage:
-                        self.signals.info_received.emit(self._current_stage, f"DEBUG: CLEANUP_READ_ERROR: {str(e)}")
+            # Skip final output reading in cleanup since it was already done in _read_final_output
+            # This prevents any race conditions or additional delays
             
             # Ensure process is properly terminated before cleanup
             if self._current_process.state() == QProcess.Running:
+                if current_stage:
+                    self.signals.info_received.emit(current_stage, f"DEBUG: Process still running during cleanup - terminating")
                 self._current_process.terminate()
-                if not self._current_process.waitForFinished(3000):  # 3 second timeout
+                if not self._current_process.waitForFinished(1000):  # Reduced timeout for cleanup
                     self._current_process.kill()
-                    self._current_process.waitForFinished(1000)  # 1 second timeout for kill
+                    self._current_process.waitForFinished(500)  # Shorter timeout for kill during cleanup
             
             # Safely delete the process
             process = self._current_process
-            self._current_process = None  # Clear reference first
+            self._current_process = None  # Clear reference IMMEDIATELY to make is_running return False
             if process:
                 process.deleteLater()
+        else:
+            # Ensure we clear the current_process reference even if it was None
+            self._current_process = None
         
-        # Reset state flags
+        # Reset state flags AFTER clearing process reference
         self._process_completing = False
         self._final_output_read = False
         self._completion_handled = False
         
+        # Clear stage and config references
         self._current_stage = None
         self._current_config = None
         self._aggregator = None
         self._process_start_time = None
+        
+        # Add debug message to confirm cleanup completed
+        if current_stage:
+            self.signals.info_received.emit(current_stage, f"DEBUG: Process cleanup completed - is_running should now return False")
     
     def get_process_info(self) -> Dict[str, Any]:
         """Get information about the current process."""
