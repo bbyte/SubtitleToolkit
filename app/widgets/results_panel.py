@@ -169,21 +169,8 @@ class ResultsPanel(QFrame):
         
         layout.addWidget(self.rename_table)
         
-        # Rename controls
-        rename_controls = QHBoxLayout()
-        
-        self.apply_renames_button = QPushButton("Apply Renames")
-        self.apply_renames_button.setEnabled(False)
-        self.apply_renames_button.setStyleSheet("font-weight: bold;")
-        rename_controls.addWidget(self.apply_renames_button)
-        
-        rename_controls.addStretch()
-        
-        self.dry_run_label = QLabel("Dry run mode - no files will be modified")
-        self.dry_run_label.setStyleSheet("color: #ffa726; font-style: italic;")
-        rename_controls.addWidget(self.dry_run_label)
-        
-        layout.addLayout(rename_controls)
+        # Note: Rename controls removed - now handled by SyncConfirmationDialog
+        # The two-phase workflow shows preview in a confirmation dialog instead
     
     def _create_summary_view(self) -> None:
         """Create the summary view widget."""
@@ -230,7 +217,7 @@ class ResultsPanel(QFrame):
         self.refresh_button.clicked.connect(self._refresh_display)
         self.export_button.clicked.connect(self._export_results)
         self.table_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self.apply_renames_button.clicked.connect(self._on_apply_renames)
+        # apply_renames_button removed - handled by SyncConfirmationDialog
     
     def _on_filter_changed(self, filter_text: str) -> None:
         """Handle filter selection change."""
@@ -411,17 +398,15 @@ class ResultsPanel(QFrame):
         status_item = QTableWidgetItem(status.title())
         self._style_status_item(status_item, status)
         self.rename_table.setItem(row, 2, status_item)
-        
-        # Enable apply button if there are pending renames
-        if status.lower() == "pending":
-            self.apply_renames_button.setEnabled(True)
+
+        # Note: Apply button removed - handled by SyncConfirmationDialog
     
     def clear(self) -> None:
         """Clear all results."""
         self._results.clear()
         self.table_widget.setRowCount(0)
         self.rename_table.setRowCount(0)
-        self.apply_renames_button.setEnabled(False)
+        # apply_renames_button removed - handled by SyncConfirmationDialog
         self._update_statistics()
         self._update_summary()
     
