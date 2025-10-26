@@ -546,9 +546,10 @@ class SyncConfigWidget(QFrame):
 
     config_changed = Signal()
 
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, config_manager=None, parent: QWidget = None):
         super().__init__(parent)
         self._translate_enabled = False
+        self._config_manager = config_manager
         self._setup_ui()
         self._connect_signals()
     
@@ -585,22 +586,39 @@ class SyncConfigWidget(QFrame):
         api_key_layout.addWidget(self.show_key_button)
         layout.addRow("API Key:", api_key_layout)
 
-        # Naming template
+        # Language filter for subtitle files
+        language_filter_layout = QHBoxLayout()
+        self.language_filter_edit = QLineEdit()
+        self.language_filter_edit.setPlaceholderText("e.g., 'bg' for .bg.srt, 'en' for .en.srt (leave empty for all)")
+        self.language_filter_edit.setMaximumWidth(150)
+        language_filter_layout.addWidget(self.language_filter_edit)
+
+        language_filter_help = QLabel(self.tr("Filter subtitles by language code"))
+        language_filter_help.setStyleSheet("color: #bbb; font-size: 10px;")
+        language_filter_layout.addWidget(language_filter_help)
+        language_filter_layout.addStretch()
+
+        layout.addRow("Language Filter:", language_filter_layout)
+
+        # Explanation
+        filter_explanation = QLabel(self.tr("Use this when you have multiple subtitle files (e.g., .srt and .bg.srt).\n"
+                                            "Enter 'bg' to only sync Bulgarian subtitles, or leave empty to sync all."))
+        filter_explanation.setStyleSheet("color: #888; font-size: 9pt; font-style: italic;")
+        filter_explanation.setWordWrap(True)
+        layout.addRow("", filter_explanation)
+
+        # Naming template (currently not used by script)
         self.template_edit = QLineEdit()
         self.template_edit.setText("{video_name}.{language}.srt")
         self.template_edit.setPlaceholderText("{video_name}.{language}.srt")
-        layout.addRow("Naming Template:", self.template_edit)
+        self.template_edit.setVisible(False)  # Hide since not currently used
+        # layout.addRow("Naming Template:", self.template_edit)
 
-        # Template help
-        template_help = QLabel(self.tr("Available placeholders: {video_name}, {language}, {original_name}"))
-        template_help.setStyleSheet("color: #bbb; font-size: 10px;")
-        template_help.setWordWrap(True)
-        layout.addRow("", template_help)
-
-        # Dry run toggle
+        # Dry run toggle (hidden - always preview first then confirm)
         self.dry_run_checkbox = QCheckBox("Dry run (preview changes without renaming)")
-        self.dry_run_checkbox.setChecked(True)  # Default to safe mode
-        layout.addRow("", self.dry_run_checkbox)
+        self.dry_run_checkbox.setChecked(False)  # Will show confirmation dialog instead
+        self.dry_run_checkbox.setVisible(False)  # Hidden
+        # layout.addRow("", self.dry_run_checkbox)
 
         # Confidence threshold
         self.confidence_slider = QSlider(Qt.Horizontal)
@@ -612,14 +630,27 @@ class SyncConfigWidget(QFrame):
         confidence_layout.addWidget(self.confidence_label)
         layout.addRow("Confidence Threshold:", confidence_layout)
 
-        # Backup option
+        # Auto-backup existing files toggle
+        self.auto_backup_existing_checkbox = QCheckBox("Auto-backup existing target files to .original.srt")
+        self.auto_backup_existing_checkbox.setChecked(True)
+        self.auto_backup_existing_checkbox.setToolTip(
+            "When enabled, if target file already exists (e.g., movie.srt),\n"
+            "it will be automatically renamed to movie.original.srt before renaming the source file.\n"
+            "This is useful when syncing translated subtitles (.bg.srt) to match video names."
+        )
+        layout.addRow("", self.auto_backup_existing_checkbox)
+
+        # Backup option (not currently used by script)
         self.backup_checkbox = QCheckBox("Create backup of original filenames")
         self.backup_checkbox.setChecked(True)
-        layout.addRow("", self.backup_checkbox)
+        self.backup_checkbox.setVisible(False)  # Hide as not implemented in script
+        # layout.addRow("", self.backup_checkbox)
 
-        # Case sensitivity
+        # Case sensitivity (hidden - always case sensitive)
         self.case_sensitive_checkbox = QCheckBox("Case-sensitive matching")
-        layout.addRow("", self.case_sensitive_checkbox)
+        self.case_sensitive_checkbox.setChecked(True)  # Always case sensitive
+        self.case_sensitive_checkbox.setVisible(False)  # Hidden
+        # layout.addRow("", self.case_sensitive_checkbox)
 
         # Update model options based on provider
         self._update_model_options()
@@ -631,11 +662,13 @@ class SyncConfigWidget(QFrame):
         self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
         self.show_key_button.toggled.connect(self._toggle_api_key_visibility)
-        self.template_edit.textChanged.connect(lambda: self.config_changed.emit())
-        self.dry_run_checkbox.toggled.connect(lambda: self.config_changed.emit())
+        self.language_filter_edit.textChanged.connect(lambda: self.config_changed.emit())
+        # self.template_edit.textChanged.connect(lambda: self.config_changed.emit())  # Hidden
+        # self.dry_run_checkbox.toggled.connect(lambda: self.config_changed.emit())  # Hidden
         self.confidence_slider.valueChanged.connect(self._on_confidence_changed)
-        self.backup_checkbox.toggled.connect(lambda: self.config_changed.emit())
-        self.case_sensitive_checkbox.toggled.connect(lambda: self.config_changed.emit())
+        self.auto_backup_existing_checkbox.toggled.connect(lambda: self.config_changed.emit())
+        # self.backup_checkbox.toggled.connect(lambda: self.config_changed.emit())  # Hidden
+        # self.case_sensitive_checkbox.toggled.connect(lambda: self.config_changed.emit())  # Hidden
     
     def _on_confidence_changed(self, value: int) -> None:
         """Handle confidence threshold change."""
@@ -644,11 +677,14 @@ class SyncConfigWidget(QFrame):
 
     def _on_use_translate_toggled(self, checked: bool) -> None:
         """Handle 'Use same as Translate' checkbox toggle."""
-        # Enable/disable provider settings based on checkbox
-        self.provider_combo.setEnabled(not checked)
-        self.model_combo.setEnabled(not checked)
-        self.api_key_edit.setEnabled(not checked)
-        self.show_key_button.setEnabled(not checked)
+        # Only disable provider settings if translate is actually enabled
+        # If translate is not enabled, always enable these fields
+        should_disable = checked and self._translate_enabled
+
+        self.provider_combo.setEnabled(not should_disable)
+        self.model_combo.setEnabled(not should_disable)
+        self.api_key_edit.setEnabled(not should_disable)
+        self.show_key_button.setEnabled(not should_disable)
         self.config_changed.emit()
 
     def _on_provider_changed(self) -> None:
@@ -692,6 +728,7 @@ class SyncConfigWidget(QFrame):
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
         # Map UI display names to script provider names
+        # Note: Sync script expects 'claude' (unlike translate which expects 'anthropic')
         provider_mapping = {
             'openai': 'openai',
             'claude': 'claude'
@@ -705,9 +742,11 @@ class SyncConfigWidget(QFrame):
             'provider': provider,
             'model': self.model_combo.currentText(),
             'api_key': self.api_key_edit.text(),
+            'language_filter': self.language_filter_edit.text().strip(),
             'naming_template': self.template_edit.text(),
             'dry_run': self.dry_run_checkbox.isChecked(),
             'confidence_threshold': self.confidence_slider.value() / 100.0,
+            'auto_backup_existing': self.auto_backup_existing_checkbox.isChecked(),
             'create_backup': self.backup_checkbox.isChecked(),
             'case_sensitive': self.case_sensitive_checkbox.isChecked()
         }
@@ -718,12 +757,43 @@ class SyncConfigWidget(QFrame):
 
         # Only validate provider settings if NOT using translate settings
         if not config['use_translate_settings']:
-            # Check if API key is provided or can be loaded from settings
+            # Check if API key is provided (either in UI or in Settings)
             provider = config['provider']
-            if provider in ['openai', 'claude'] and not config['api_key']:
+            has_ui_api_key = bool(config['api_key'])
+
+            # Check Settings for API key if not provided in UI
+            has_settings_api_key = False
+            if self._config_manager and not has_ui_api_key:
+                settings = self._config_manager.get_settings()
+                translators_config = settings.get('translators', {})
+
+                # Map provider to settings key
+                # Sync script uses 'claude', but settings use 'anthropic'
+                settings_provider = 'anthropic' if provider == 'claude' else provider
+                provider_config = translators_config.get(settings_provider, {})
+                has_settings_api_key = bool(provider_config.get('api_key', '').strip())
+
+            # Also check environment variables
+            has_env_api_key = False
+            if not has_ui_api_key and not has_settings_api_key:
+                import os
+                from dotenv import load_dotenv
+
+                # Load .env file if it exists
+                env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
+                if os.path.exists(env_file):
+                    load_dotenv(env_file)
+
+                if provider in ['openai', 'claude']:
+                    env_var = 'ANTHROPIC_API_KEY' if provider == 'claude' else 'OPENAI_API_KEY'
+                    has_env_api_key = bool(os.getenv(env_var, '').strip())
+
+            # Validate that API key is available from at least one source
+            if provider in ['openai', 'claude'] and not (has_ui_api_key or has_settings_api_key or has_env_api_key):
                 provider_display = 'Claude' if provider == 'claude' else 'OpenAI'
                 return ValidationResult(False, f"{provider_display} API key is required for Sync stage. "
-                                              f"Please enter it or enable 'Use same as Translate'.")
+                                              f"Please enter it here, set it in Settings (File → Settings → Translators), "
+                                              f"or set it in environment variables.")
 
             # Check model is specified
             if not config['model']:
@@ -802,7 +872,7 @@ class StageConfigurators(QFrame):
         
         # Sync configuration
         self.sync_group = QCollapsibleGroupBox(self.tr("Sync Configuration"))
-        self.sync_config = SyncConfigWidget()
+        self.sync_config = SyncConfigWidget(self._config_manager)
         sync_layout = QVBoxLayout(self.sync_group)
         sync_layout.addWidget(self.sync_config)
         self.sync_group.setContentWidget(self.sync_config)

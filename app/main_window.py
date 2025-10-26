@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QAction, QKeySequence
+from typing import List, Dict
 
 from app.widgets.project_selector import ProjectSelector
 from app.widgets.stage_toggles import StageToggles
@@ -21,6 +22,8 @@ from app.widgets.results_panel import ResultsPanel
 from app.widgets.action_buttons import ActionButtons
 
 from app.dialogs.settings_dialog import SettingsDialog
+from app.dialogs.progress_dialog import ProgressDialog
+from app.dialogs.sync_confirmation_dialog import SyncConfirmationDialog
 from app.config.config_manager import ConfigManager
 from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
 from app.zoom_manager import ZoomManager
@@ -88,7 +91,10 @@ class MainWindow(QMainWindow):
         
         # Settings dialog (created on demand)
         self._settings_dialog = None
-        
+
+        # Progress dialog (created on demand)
+        self._progress_dialog = None
+
         # Status update timer
         self._status_timer = QTimer()
         self._status_timer.timeout.connect(self._update_status)
@@ -142,33 +148,22 @@ class MainWindow(QMainWindow):
         # Configuration section
         main_layout.addWidget(self.stage_configurators)
         
-        # Create splitter for resizable panels
-        splitter = QSplitter(Qt.Vertical)
-        
-        # Progress section (fixed height)
-        splitter.addWidget(self.progress_section)
-        
-        # Create tab widget for log and results
+        # Note: Progress section is now shown in a modal dialog
+        # Keep the widget for backwards compatibility but hide it
+        self.progress_section.setVisible(False)
+
+        # Create tab widget for log and results - expands to fill space
         tab_widget = QTabWidget()
-        tab_widget.addTab(self.log_panel, self.tr("Log"))
+        # Results tab first, then Log
         tab_widget.addTab(self.results_panel, self.tr("Results"))
-        splitter.addWidget(tab_widget)
-        
-        # Set splitter proportions
-        splitter.setStretchFactor(0, 0)  # Progress section: no stretch
-        splitter.setStretchFactor(1, 1)  # Tab widget: stretch to fill
+        tab_widget.addTab(self.log_panel, self.tr("Log"))
+        tab_widget.setMinimumHeight(150)  # Minimum for usability
 
-        # Set initial sizes - make log/results panel take less vertical space
-        # Progress section: 120px (fixed), Log/Results: ~300px (half of previous size)
-        splitter.setSizes([120, 300])
+        # Add to layout with stretch factor to fill available space
+        main_layout.addWidget(tab_widget, 1)  # Stretch factor of 1 = fills space
 
-        main_layout.addWidget(splitter)
-        
-        # Action buttons at bottom
-        main_layout.addWidget(self.action_buttons)
-        
-        # Set layout stretch factors
-        main_layout.setStretchFactor(splitter, 1)
+        # Action buttons at bottom (no stretch, fixed height)
+        main_layout.addWidget(self.action_buttons, 0)  # Stretch factor 0 = fixed size
         
         # Add scroll area to central layout
         central_layout.addWidget(scroll_area)
@@ -577,9 +572,9 @@ class MainWindow(QMainWindow):
                 f"Failed to start processing pipeline:\n\n{str(e)}"
             )
             self.log_panel.add_message("error", f"Pipeline start failed: {str(e)}")
-            # Ensure progress section shows error state
-            if self.progress_section.is_processing():
-                self.progress_section.stop_processing(success=False, message="Pipeline failed to start")
+            # Ensure progress dialog shows error state
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message="Pipeline failed to start")
             self._set_running_state(False)
     
     def _on_cancel_clicked(self) -> None:
@@ -845,16 +840,50 @@ class MainWindow(QMainWindow):
         
         event.accept()
     
+    def _show_progress_dialog(self, stages: list) -> None:
+        """
+        Create and show the progress dialog.
+
+        Args:
+            stages: List of enabled stage names
+        """
+        # Create dialog if not exists
+        if self._progress_dialog is None:
+            self._progress_dialog = ProgressDialog(self, auto_close_on_success=False)
+            # Connect cancel signal
+            self._progress_dialog.cancel_requested.connect(self._on_progress_dialog_cancel)
+            self._progress_dialog.dialog_closed.connect(self._on_progress_dialog_closed)
+
+        # Start processing in dialog
+        self._progress_dialog.start_processing(stages)
+
+        # Show dialog
+        self._progress_dialog.show()
+        self._progress_dialog.raise_()
+        self._progress_dialog.activateWindow()
+
+    def _on_progress_dialog_cancel(self) -> None:
+        """Handle cancel request from progress dialog."""
+        if self.script_runner.is_running:
+            self.script_runner.cancel_current_process()
+            self.log_panel.add_message("info", "Processing cancellation requested")
+
+    def _on_progress_dialog_closed(self) -> None:
+        """Handle progress dialog being closed."""
+        # If process is still running when dialog closes, cancel it
+        if self.script_runner.is_running:
+            self.script_runner.cancel_current_process()
+
     def _connect_runner_signals(self) -> None:
         """Connect ScriptRunner signals to UI handlers."""
         signals = self.script_runner.signals
-        
+
         # Process lifecycle signals
         signals.process_started.connect(self._on_process_started)
         signals.process_finished.connect(self._on_process_finished)
         signals.process_failed.connect(self._on_process_failed)
         signals.process_cancelled.connect(self._on_process_cancelled)
-        
+
         # Event signals from JSONL stream
         signals.debug_received.connect(self._on_debug_received)
         signals.info_received.connect(self._on_info_received)
@@ -867,22 +896,22 @@ class MainWindow(QMainWindow):
         """Start the processing pipeline based on enabled stages."""
         stages = self.stage_toggles.get_enabled_stages()
         selected_path = self.project_selector.get_selected_path()
-        
+
         if not selected_path:
             raise ValueError("No project or file selected")
-        
+
         self.log_panel.add_message("info", "Starting processing pipeline...")
         self._set_running_state(True)
-        
-        # Start progress tracking
+
+        # Create and show progress dialog
         enabled_stage_list = [stage for stage, enabled in stages.items() if enabled]
-        self.progress_section.start_processing(enabled_stage_list)
-        
+        self._show_progress_dialog(enabled_stage_list)
+
         # Start with the first enabled stage
         if stages.get('extract', False):
             self._run_extract_stage()
         elif stages.get('translate', False):
-            self._run_translate_stage() 
+            self._run_translate_stage()
         elif stages.get('sync', False):
             self._run_sync_stage()
     
@@ -894,7 +923,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             error_msg = f"Failed to start extraction: {str(e)}"
             self.log_panel.add_message("error", error_msg)
-            self.progress_section.stop_processing(success=False, message="Extract stage failed to start")
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message="Extract stage failed to start")
             self._set_running_state(False)
             # Re-raise so caller knows the stage failed
             raise RuntimeError(error_msg) from e
@@ -907,23 +937,147 @@ class MainWindow(QMainWindow):
         except Exception as e:
             error_msg = f"Failed to start translation: {str(e)}"
             self.log_panel.add_message("error", error_msg)
-            self.progress_section.stop_processing(success=False, message="Translate stage failed to start")
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message="Translate stage failed to start")
             self._set_running_state(False)
             # Re-raise so caller knows the stage failed
             raise RuntimeError(error_msg) from e
     
     def _run_sync_stage(self) -> None:
-        """Run the sync stage."""
+        """
+        Run the sync stage with confirmation.
+
+        This runs in two phases:
+        1. Preview mode to get list of operations
+        2. Show confirmation dialog
+        3. If confirmed, execute the operations
+        """
         try:
+            # Phase 1: Run in preview mode first
+            self.log_panel.add_message("info", "Running sync preview to get operations list...")
+
+            # Build config with dry_run=True for preview
             config = self._build_sync_config()
+            config.dry_run = True  # Force preview mode
+
+            # Store the config for later use
+            self._pending_sync_config = config
+
+            # Connect to result signal to handle preview completion
+            self.script_runner.signals.process_finished.disconnect()
+            self.script_runner.signals.process_finished.connect(self._on_sync_preview_complete)
+
+            # Run preview
             self.script_runner.run_sync(config)
+
         except Exception as e:
+            import traceback
             error_msg = f"Failed to start sync: {str(e)}"
+            error_details = traceback.format_exc()
             self.log_panel.add_message("error", error_msg)
-            self.progress_section.stop_processing(success=False, message="Sync stage failed to start")
+            self.log_panel.add_message("debug", f"Sync error details:\n{error_details}")
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message=f"Sync failed: {str(e)}")
             self._set_running_state(False)
             # Re-raise so caller knows the stage failed
             raise RuntimeError(error_msg) from e
+
+    def _on_sync_preview_complete(self, result) -> None:
+        """Handle sync preview completion and show confirmation dialog."""
+        # Reconnect normal handler
+        self.script_runner.signals.process_finished.disconnect()
+        self.script_runner.signals.process_finished.connect(self._on_process_finished)
+
+        if not result.success:
+            self.log_panel.add_message("error", "Sync preview failed")
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message="Sync preview failed")
+            self._set_running_state(False)
+            return
+
+        # Parse operations from result
+        operations = self._parse_sync_operations(result)
+
+        if not operations or all(op.get('action') == 'skip' for op in operations):
+            # No operations to perform
+            self.log_panel.add_message("info", "No files need to be renamed")
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=True, message="No operations needed")
+            self._set_running_state(False)
+            return
+
+        # Show confirmation dialog
+        confirmation_dialog = SyncConfirmationDialog(operations, self)
+
+        # Hide progress dialog temporarily
+        if self._progress_dialog:
+            self._progress_dialog.hide()
+
+        # Show confirmation
+        if confirmation_dialog.exec() == SyncConfirmationDialog.Accepted:
+            # User confirmed - execute the operations
+            self.log_panel.add_message("info", "User confirmed sync operations, executing...")
+
+            # Show progress dialog again
+            if self._progress_dialog:
+                self._progress_dialog.show()
+                self._progress_dialog.update_stage("sync", "Executing rename operations...")
+
+            # Run with execute flag
+            self._pending_sync_config.dry_run = False
+            self.script_runner.run_sync(self._pending_sync_config)
+        else:
+            # User cancelled
+            self.log_panel.add_message("info", "Sync operations cancelled by user")
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message="Cancelled by user")
+            self._set_running_state(False)
+
+    def _parse_sync_operations(self, result) -> List[Dict]:
+        """
+        Parse sync operations from the result data.
+
+        Returns:
+            List of operation dictionaries with action, from, to, reason
+        """
+        operations = []
+
+        # The sync script returns operations in the result data under 'renames' key
+        if hasattr(result, 'result_data') and result.result_data:
+            renames = result.result_data.get('renames', [])
+
+            for rename in renames:
+                operations.append({
+                    'action': rename.get('action', 'rename'),
+                    'from_file': rename.get('from', ''),
+                    'to_file': rename.get('to', ''),
+                    'reason': rename.get('reason', ''),
+                    'confidence': rename.get('confidence', 0.0)
+                })
+
+        # Also try to parse from output if result_data is empty
+        if not operations and hasattr(result, 'output'):
+            # Parse JSONL output for operations
+            import json
+            for line in result.output.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                    if event.get('type') in ['info', 'warning'] and 'data' in event:
+                        data = event['data']
+                        action = data.get('action')
+                        if action in ['backup', 'rename', 'skip']:
+                            operations.append({
+                                'action': action,
+                                'from_file': data.get('from', data.get('file', '')),
+                                'to_file': data.get('to', data.get('target', '')),
+                                'reason': data.get('reason', event.get('msg', ''))
+                            })
+                except json.JSONDecodeError:
+                    continue
+
+        return operations
     
     def _build_extract_config(self) -> ExtractConfig:
         """Build extraction configuration from UI settings."""
@@ -1080,6 +1234,15 @@ class MainWindow(QMainWindow):
         """Build sync configuration from UI settings."""
         selected_path = self.project_selector.get_selected_path()
 
+        # Sync requires a directory - if a file was selected, use its parent directory
+        from pathlib import Path
+        selected_path_obj = Path(selected_path)
+        if selected_path_obj.is_file():
+            sync_directory = str(selected_path_obj.parent)
+            self.log_panel.add_message("debug", f"Sync: Using parent directory {sync_directory} (file was selected)")
+        else:
+            sync_directory = selected_path
+
         # Get configuration from stage configurators
         sync_settings = self.stage_configurators.get_sync_config()
 
@@ -1147,12 +1310,14 @@ class MainWindow(QMainWindow):
         final_model = model or provider_config.get('default_model', '')
 
         return SyncConfig(
-            input_directory=selected_path,
+            input_directory=sync_directory,
             provider=provider,
             model=final_model,
             confidence_threshold=sync_settings.get('confidence_threshold', 0.8),
+            language_filter=sync_settings.get('language_filter', ''),
             api_key=get_sync_api_key(provider, api_key),
             dry_run=sync_settings.get('dry_run', True),
+            auto_backup_existing=sync_settings.get('auto_backup_existing', True),
             recursive=sync_settings.get('recursive', True),
             naming_template=sync_settings.get('naming_template', "{show_title} - S{season:02d}E{episode:02d} - {episode_title}"),
         )
@@ -1162,18 +1327,26 @@ class MainWindow(QMainWindow):
         """Handle process started signal."""
         stage_name = stage.value.capitalize()
         self.log_panel.add_message("info", f"{stage_name} stage started")
-        self.progress_section.update_stage(stage.value, f"Starting {stage_name.lower()}...")
-        self.progress_section.update_progress(0, stage.value, f"Starting {stage_name.lower()}...")
+
+        # Update progress dialog
+        if self._progress_dialog:
+            self._progress_dialog.update_stage(stage.value, f"Starting {stage_name.lower()}...")
+            self._progress_dialog.update_progress(0, stage.value, f"Starting {stage_name.lower()}...")
+            self._progress_dialog.add_log_message("info", f"{stage_name} stage started")
     
     def _on_process_finished(self, result) -> None:  # result is ProcessResult
         """Handle process finished signal."""
         stage_name = result.stage.value.capitalize()
         
         if result.success:
-            self.log_panel.add_message("info", 
+            self.log_panel.add_message("info",
                 f"{stage_name} stage completed successfully in {result.duration_seconds:.1f}s")
-            self.progress_section.update_progress(100, result.stage.value, f"{stage_name} completed")
-            
+
+            # Update progress dialog
+            if self._progress_dialog:
+                self._progress_dialog.update_progress(100, result.stage.value, f"{stage_name} completed")
+                self._progress_dialog.add_log_message("success", f"{stage_name} completed in {result.duration_seconds:.1f}s")
+
             # Update results panel
             if result.output_files:
                 for output_file in result.output_files:
@@ -1193,42 +1366,66 @@ class MainWindow(QMainWindow):
         else:
             error_msg = result.error_message or f"Process failed with exit code {result.exit_code}"
             self.log_panel.add_message("error", f"{stage_name} stage failed: {error_msg}")
-            self.progress_section.stop_processing(success=False, message=f"{stage_name} failed")
+
+            # Update progress dialog
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message=f"{stage_name} failed: {error_msg}")
+                self._progress_dialog.add_log_message("error", error_msg)
+
             self._set_running_state(False)
     
     def _on_process_failed(self, stage: Stage, error_message: str) -> None:
         """Handle process failed signal."""
         stage_name = stage.value.capitalize()
         self.log_panel.add_message("error", f"{stage_name} stage failed: {error_message}")
-        self.progress_section.stop_processing(success=False, message=f"{stage_name} failed")
+
+        # Update progress dialog
+        if self._progress_dialog:
+            self._progress_dialog.stop_processing(success=False, message=f"{stage_name} failed: {error_message}")
+            self._progress_dialog.add_log_message("error", error_message)
+
         self._set_running_state(False)
     
     def _on_process_cancelled(self, stage: Stage) -> None:
         """Handle process cancelled signal."""
         stage_name = stage.value.capitalize()
         self.log_panel.add_message("info", f"{stage_name} stage cancelled")
-        self.progress_section.stop_processing(success=False, message=f"{stage_name} cancelled")
+
+        # Update progress dialog
+        if self._progress_dialog:
+            self._progress_dialog.stop_processing(success=False, message=f"{stage_name} cancelled")
+            self._progress_dialog.add_log_message("warning", f"{stage_name} cancelled")
+
         self._set_running_state(False)
     
     def _on_debug_received(self, stage: Stage, message: str) -> None:
         """Handle debug message from process."""
         self.log_panel.add_message("debug", message)
+        if self._progress_dialog:
+            self._progress_dialog.add_log_message("debug", message)
 
     def _on_info_received(self, stage: Stage, message: str) -> None:
         """Handle info message from process."""
         self.log_panel.add_message("info", message)
+        if self._progress_dialog:
+            self._progress_dialog.add_log_message("info", message)
 
     def _on_progress_updated(self, stage: Stage, progress: int, message: str) -> None:
         """Handle progress update from process."""
-        self.progress_section.update_progress(progress, stage.value, message)
+        if self._progress_dialog:
+            self._progress_dialog.update_progress(progress, stage.value, message)
     
     def _on_warning_received(self, stage: Stage, message: str) -> None:
         """Handle warning message from process."""
         self.log_panel.add_message("warning", message)
-    
+        if self._progress_dialog:
+            self._progress_dialog.add_log_message("warning", message)
+
     def _on_error_received(self, stage: Stage, message: str) -> None:
         """Handle error message from process."""
         self.log_panel.add_message("error", message)
+        if self._progress_dialog:
+            self._progress_dialog.add_log_message("error", message)
     
     def _on_result_received(self, stage: Stage, data: dict) -> None:
         """Handle result data from process."""
@@ -1270,14 +1467,16 @@ class MainWindow(QMainWindow):
                         self._run_sync_stage()
                     else:
                         self.log_panel.add_message("info", "Processing pipeline completed")
-                        self.progress_section.stop_processing(success=True, message="Pipeline completed with warnings")
+                        if self._progress_dialog:
+                            self._progress_dialog.stop_processing(success=True, message="Pipeline completed with warnings")
                         self._set_running_state(False)
             elif completed_stage == Stage.TRANSLATE and stages.get('sync', False):
                 self._run_sync_stage()
             else:
                 # Pipeline complete
                 self.log_panel.add_message("info", "Processing pipeline completed")
-                self.progress_section.stop_processing(success=True, message="Pipeline completed successfully")
+                if self._progress_dialog:
+                    self._progress_dialog.stop_processing(success=True, message="Pipeline completed successfully")
                 self._set_running_state(False)
         except Exception as e:
             # Stage failed to start - error already logged and progress stopped by _run_*_stage methods

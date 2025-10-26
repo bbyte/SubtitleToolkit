@@ -114,13 +114,17 @@ class SubtitleToolkitApp(QApplication):
     def _set_application_icon(self) -> None:
         """Set the application icon if available."""
         icon_paths = [
+            Path(__file__).parent / "resources" / "app_icon.png",
             Path(__file__).parent / "resources" / "icon.png",
             Path(__file__).parent / "resources" / "icon.ico",
         ]
-        
+
         for icon_path in icon_paths:
             if icon_path.exists():
-                self.setWindowIcon(QIcon(str(icon_path)))
+                icon = QIcon(str(icon_path))
+                self.setWindowIcon(icon)
+                # Also set as default icon for all windows
+                QApplication.setWindowIcon(icon)
                 break
     
     def _apply_modern_style(self) -> None:

@@ -258,23 +258,25 @@ class TranslateConfig:
 @dataclass
 class SyncConfig:
     """Configuration for SRT name synchronization."""
-    
+
     # Input configuration
     input_directory: str
-    
+
     # Sync settings
-    provider: str = "openai"  # openai, anthropic
+    provider: str = "openai"  # openai, claude (script expects 'claude' not 'anthropic')
     model: str = ""  # Will be set based on provider defaults
     confidence_threshold: float = 0.8
-    
+    language_filter: str = ""  # Filter by language code (e.g., 'bg' for .bg.srt)
+
     # Provider credentials (from settings)
     api_key: str = ""
-    
+
     # Processing options
     dry_run: bool = True  # Default to dry run for safety
+    auto_backup_existing: bool = True  # Auto-rename existing target files to .original.srt
     recursive: bool = True
     naming_template: str = "{show_title} - S{season:02d}E{episode:02d} - {episode_title}"
-    
+
     # Filtering options
     include_patterns: List[str] = field(default_factory=lambda: ["*.srt"])
     exclude_patterns: List[str] = field(default_factory=list)
@@ -293,7 +295,8 @@ class SyncConfig:
             return False, f"Input path is not a directory: {self.input_directory}"
         
         # Validate provider
-        valid_providers = ["openai", "anthropic"]
+        # Note: Sync script expects 'claude' not 'anthropic'
+        valid_providers = ["openai", "claude"]
         if self.provider not in valid_providers:
             return False, f"Invalid provider: {self.provider}. Must be one of {valid_providers}"
         
@@ -309,11 +312,10 @@ class SyncConfig:
         if not (0 <= self.confidence_threshold <= 1):
             return False, "Confidence threshold must be between 0 and 1"
         
-        # Validate naming template has required placeholders
-        required_placeholders = ["{show_title}"]  # At minimum
-        if not any(placeholder in self.naming_template for placeholder in required_placeholders):
-            return False, "Naming template must contain at least {show_title} placeholder"
-        
+        # Note: The naming template is currently not used by the sync script
+        # The script uses AI to match and rename files intelligently
+        # Template validation is removed to allow any user preference
+
         return True, ""
     
     def to_cli_args(self) -> List[str]:
@@ -323,25 +325,35 @@ class SyncConfig:
         # Provider settings
         args.extend(["--provider", self.provider])
         args.extend(["--model", self.model])
-        args.extend(["--confidence", str(self.confidence_threshold)])
-        
-        # Template
-        if self.naming_template:
-            args.extend(["--template", self.naming_template])
+        args.extend(["--min-confidence", str(self.confidence_threshold)])
+
+        # Language filter if specified
+        if self.language_filter:
+            args.extend(["--language-filter", self.language_filter])
+
+        # Auto-backup existing files
+        if self.auto_backup_existing:
+            args.append("--auto-backup-existing")
+
+        # Note: Template is not used by the script - script uses AI matching
+        # The template field is kept in UI for potential future use
+        # if self.naming_template:
+        #     args.extend(["--template", self.naming_template])
         
         # Processing options
         if not self.dry_run:
             args.append("--execute")
+
+        # Note: --no-recursive is not supported by current script
+        # if not self.recursive:
+        #     args.append("--no-recursive")
         
-        if not self.recursive:
-            args.append("--no-recursive")
-        
-        # Include/exclude patterns
-        for pattern in self.include_patterns:
-            args.extend(["--include", pattern])
-        
-        for pattern in self.exclude_patterns:
-            args.extend(["--exclude", pattern])
+        # Note: Include/exclude patterns not supported by current script
+        # for pattern in self.include_patterns:
+        #     args.extend(["--include", pattern])
+        #
+        # for pattern in self.exclude_patterns:
+        #     args.extend(["--exclude", pattern])
         
         # Always add JSONL flag for desktop app
         args.append("--jsonl")

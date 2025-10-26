@@ -49,14 +49,16 @@ class MatchResult:
     reason: str
 
 class SRTNamesSync:
-    def __init__(self, directory: str, provider: LLMProvider, model: str = None, jsonl_mode: bool = False):
+    def __init__(self, directory: str, provider: LLMProvider, model: str = None, jsonl_mode: bool = False, language_filter: str = None, auto_backup_existing: bool = False):
         self.directory = Path(directory)
         self.provider = provider
         self.model = model or self._get_default_model()
+        self.language_filter = language_filter  # e.g., 'bg' to only match .bg.srt files
+        self.auto_backup_existing = auto_backup_existing  # Auto-rename existing files to .original.srt
         self.mkv_files: List[MediaFile] = []
         self.srt_files: List[MediaFile] = []
         self.jsonl_mode = jsonl_mode
-        
+
         # Initialize LLM clients
         self._init_llm_clients()
         
@@ -130,7 +132,15 @@ class SRTNamesSync:
                 if file_path.suffix.lower() == '.mkv':
                     mkv_files.append(MediaFile(file_path, file_path.stem, file_path.suffix))
                 elif file_path.suffix.lower() == '.srt':
-                    srt_files.append(MediaFile(file_path, file_path.stem, file_path.suffix))
+                    # Apply language filter if specified
+                    if self.language_filter:
+                        # Check if filename matches the language filter pattern
+                        # e.g., for language_filter='bg', match files like 'movie.bg.srt'
+                        if file_path.stem.endswith(f'.{self.language_filter}'):
+                            srt_files.append(MediaFile(file_path, file_path.stem, file_path.suffix))
+                    else:
+                        # No filter, include all SRT files
+                        srt_files.append(MediaFile(file_path, file_path.stem, file_path.suffix))
         
         self._print_or_emit(
             f"{Colors.OKGREEN}Found {len(mkv_files)} MKV files and {len(srt_files)} SRT files{Colors.ENDC}",
@@ -195,7 +205,8 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
             
             # Parse JSON response
             try:
-                # Extract JSON from response if it's wrapped in markdown
+                # Extract JSON from response - handle various formats
+                # 1. Try markdown code blocks first
                 if "```json" in content:
                     json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
                     if json_match:
@@ -204,11 +215,29 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
                     json_match = re.search(r'```\s*(\{.*?\})\s*```', content, re.DOTALL)
                     if json_match:
                         content = json_match.group(1)
-                
-                return json.loads(content)
-            except json.JSONDecodeError:
+                else:
+                    # 2. Try to extract JSON object from beginning of response
+                    # Claude often returns JSON followed by explanation
+                    json_match = re.search(r'^\s*(\{[^}]*\})', content, re.DOTALL | re.MULTILINE)
+                    if json_match:
+                        # Found opening brace, now find the matching closing brace
+                        brace_count = 0
+                        start_idx = content.find('{')
+                        if start_idx != -1:
+                            for i, char in enumerate(content[start_idx:], start=start_idx):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        # Found matching closing brace
+                                        content = content[start_idx:i+1]
+                                        break
+
+                return json.loads(content.strip())
+            except json.JSONDecodeError as e:
                 self._print_or_emit(
-                    f"{Colors.WARNING}Failed to parse JSON response: {content}{Colors.ENDC}",
+                    f"{Colors.WARNING}Failed to parse JSON response: {content[:200]}...{Colors.ENDC}",
                     "warning"
                 )
                 return {"best_match": None, "confidence": 0.0, "reason": "Failed to parse response"}
@@ -360,12 +389,39 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
                 continue
             
             if new_path.exists():
-                self._print_or_emit(
-                    f"  {Colors.WARNING}SKIP:{Colors.ENDC} {new_name} (target file already exists)",
-                    "warning",
-                    data={"action": "skip", "reason": "target exists", "target": new_name}
-                )
-                continue
+                # Handle existing file based on auto_backup_existing flag
+                if self.auto_backup_existing:
+                    # Rename existing file to .original.srt
+                    backup_path = new_path.parent / f"{new_path.stem}.original{new_path.suffix}"
+
+                    # If .original.srt also exists, find a unique name
+                    counter = 1
+                    while backup_path.exists():
+                        backup_path = new_path.parent / f"{new_path.stem}.original{counter}{new_path.suffix}"
+                        counter += 1
+
+                    backup_action = "Would backup" if dry_run else "Backing up"
+                    self._print_or_emit(
+                        f"  {Colors.OKCYAN}{backup_action}:{Colors.ENDC} {new_path.name} -> {backup_path.name}",
+                        "info",
+                        data={"action": "backup", "from": new_path.name, "to": backup_path.name}
+                    )
+
+                    if not dry_run:
+                        try:
+                            new_path.rename(backup_path)
+                        except Exception as e:
+                            error_msg = f"    {Colors.FAIL}ERROR backing up:{Colors.ENDC} {e}"
+                            self._print_or_emit(error_msg, "error", data={"file": new_path.name, "error": str(e)})
+                            continue  # Skip this rename if backup failed
+                else:
+                    # Skip if not auto-backing up
+                    self._print_or_emit(
+                        f"  {Colors.WARNING}SKIP:{Colors.ENDC} {new_name} (target file already exists)",
+                        "warning",
+                        data={"action": "skip", "reason": "target exists", "target": new_name}
+                    )
+                    continue
             
             rename_info = {
                 "from": old_path.name,
@@ -469,7 +525,20 @@ Examples:
         default=0.3,
         help="Minimum confidence threshold for matches (default: 0.3)"
     )
-    
+
+    parser.add_argument(
+        "--language-filter",
+        type=str,
+        default=None,
+        help="Filter subtitles by language code (e.g., 'bg' for .bg.srt files, 'en' for .en.srt). Leave empty to match all .srt files."
+    )
+
+    parser.add_argument(
+        "--auto-backup-existing",
+        action="store_true",
+        help="Automatically rename existing files to .original.srt instead of skipping them"
+    )
+
     parser.add_argument(
         "--jsonl",
         action="store_true",
@@ -506,7 +575,7 @@ Examples:
     
     # Initialize app
     provider = LLMProvider(args.provider)
-    app = SRTNamesSync(args.directory, provider, args.model, args.jsonl)
+    app = SRTNamesSync(args.directory, provider, args.model, args.jsonl, args.language_filter, args.auto_backup_existing)
     
     # Emit start event for JSONL mode
     if args.jsonl:
