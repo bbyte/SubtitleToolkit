@@ -11,3 +11,6 @@ tqdm>=4.64.0
 
 # Additional dependencies for desktop app
 # (pathlib is built-in since Python 3.4)
+
+# Video preview
+python-mpv>=1.0.1  # Requires libmpv (install via: brew install mpv / apt install libmpv-dev / choco install mpv)

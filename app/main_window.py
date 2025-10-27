@@ -24,6 +24,7 @@ from app.widgets.action_buttons import ActionButtons
 from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.progress_dialog import ProgressDialog
 from app.dialogs.sync_confirmation_dialog import SyncConfirmationDialog
+from app.dialogs.video_preview_dialog import VideoPreviewDialog
 from app.config.config_manager import ConfigManager
 from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
 from app.zoom_manager import ZoomManager
@@ -296,7 +297,16 @@ class MainWindow(QMainWindow):
         check_deps_action.setStatusTip(self.tr("Check for required dependencies"))
         check_deps_action.triggered.connect(self._check_dependencies)
         tools_menu.addAction(check_deps_action)
-        
+
+        tools_menu.addSeparator()
+
+        # Preview Video action
+        preview_video_action = QAction(self.tr("&Preview Video with Subtitles..."), self)
+        preview_video_action.setShortcut(QKeySequence("Ctrl+P"))
+        preview_video_action.setStatusTip(self.tr("Preview video with subtitles"))
+        preview_video_action.triggered.connect(self._show_video_preview)
+        tools_menu.addAction(preview_video_action)
+
         # Help menu
         help_menu = menubar.addMenu(self.tr("&Help"))
         
@@ -732,13 +742,61 @@ class MainWindow(QMainWindow):
             self._settings_dialog = SettingsDialog(self.config_manager, self)
             self._settings_dialog.settings_applied.connect(self._on_settings_applied)
             self._settings_dialog.language_change_requested.connect(self._on_language_change_requested)
-        
+
         # Show settings dialog on Tools tab and refresh detection
         self._settings_dialog.show_tab("tools")
         self._settings_dialog.refresh_tool_detection()
-        self._settings_dialog.show()
-        self._settings_dialog.raise_()
-        self._settings_dialog.activateWindow()
+
+    def _show_video_preview(self) -> None:
+        """Show video preview dialog with subtitle selection."""
+        from PySide6.QtWidgets import QFileDialog
+        from pathlib import Path
+
+        # Select video file
+        video_file, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Select Video File"),
+            self.project_selector.selected_path or "",
+            self.tr("Video Files (*.mkv *.mp4 *.avi *.mov *.wmv *.flv);;All Files (*)")
+        )
+
+        if not video_file:
+            return
+
+        # Find subtitle files in the same directory with the same base name
+        video_path = Path(video_file)
+        subtitle_dir = video_path.parent
+        base_name = video_path.stem
+
+        # Look for subtitle files
+        subtitle_files = []
+        for pattern in ['*.srt', '*.ass', '*.ssa', '*.sub']:
+            for sub_file in subtitle_dir.glob(pattern):
+                # Match files with same base name or base name + language code
+                if sub_file.stem == base_name or sub_file.stem.startswith(f"{base_name}."):
+                    subtitle_files.append(str(sub_file))
+
+        # If no subtitles found, allow user to manually select
+        if not subtitle_files:
+            reply = QMessageBox.question(
+                self,
+                self.tr("No Subtitles Found"),
+                self.tr("No subtitle files were found for this video.\n\nWould you like to select subtitle files manually?"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.Yes:
+                subtitle_files, _ = QFileDialog.getOpenFileNames(
+                    self,
+                    self.tr("Select Subtitle Files"),
+                    str(subtitle_dir),
+                    self.tr("Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)")
+                )
+
+        # Open video preview dialog
+        dialog = VideoPreviewDialog(video_file, subtitle_files, self)
+        dialog.show()
     
     def _on_settings_applied(self) -> None:
         """Handle when settings are applied."""
