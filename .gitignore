@@ -167,5 +167,7 @@ dmypy.json
 test_files/
 output/
 
-.claude/settings.local.json
+# Claude Code and AI documentation
+.claude/
+ai_docs/
 .vscode
