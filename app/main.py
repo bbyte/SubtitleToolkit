@@ -8,6 +8,7 @@ Provides a user-friendly interface for the SubtitleToolkit CLI scripts.
 
 import sys
 import os
+import locale
 from pathlib import Path
 from typing import Optional
 
@@ -348,9 +349,17 @@ def main():
     # Enable High DPI support
     os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    
+
     # Create and run application
     app = SubtitleToolkitApp(sys.argv)
+
+    # Fix locale for mpv after Qt initialization
+    # Qt resets locale settings, so we need to set it again here
+    try:
+        locale.setlocale(locale.LC_NUMERIC, 'C')
+    except Exception:
+        pass
+
     sys.exit(app.run())
 
 
