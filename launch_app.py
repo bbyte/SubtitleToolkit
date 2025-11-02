@@ -6,7 +6,15 @@ This script properly sets up the Python path and launches the application.
 
 import sys
 import os
+import locale
 from pathlib import Path
+
+# Fix locale for mpv BEFORE any imports
+# This prevents segfaults on non-C locales (e.g., Bulgarian, German, etc.)
+try:
+    locale.setlocale(locale.LC_NUMERIC, 'C')
+except Exception:
+    pass
 
 # Add the project root to Python path so we can import app modules
 project_root = Path(__file__).parent

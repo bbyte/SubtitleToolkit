@@ -24,6 +24,7 @@ from app.widgets.action_buttons import ActionButtons
 from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.progress_dialog import ProgressDialog
 from app.dialogs.sync_confirmation_dialog import SyncConfirmationDialog
+from app.dialogs.video_preview_dialog import VideoPreviewDialog
 from app.config.config_manager import ConfigManager
 from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
 from app.zoom_manager import ZoomManager
@@ -296,7 +297,16 @@ class MainWindow(QMainWindow):
         check_deps_action.setStatusTip(self.tr("Check for required dependencies"))
         check_deps_action.triggered.connect(self._check_dependencies)
         tools_menu.addAction(check_deps_action)
-        
+
+        tools_menu.addSeparator()
+
+        # Preview Video action
+        preview_video_action = QAction(self.tr("&Preview Video with Subtitles..."), self)
+        preview_video_action.setShortcut(QKeySequence("Ctrl+P"))
+        preview_video_action.setStatusTip(self.tr("Preview video with subtitles"))
+        preview_video_action.triggered.connect(self._show_video_preview)
+        tools_menu.addAction(preview_video_action)
+
         # Help menu
         help_menu = menubar.addMenu(self.tr("&Help"))
         
@@ -466,6 +476,7 @@ class MainWindow(QMainWindow):
         self.action_buttons.run_clicked.connect(self._on_run_clicked)
         self.action_buttons.cancel_clicked.connect(self._on_cancel_clicked)
         self.action_buttons.open_output_clicked.connect(self._on_open_output_clicked)
+        self.action_buttons.preview_clicked.connect(self._on_preview_clicked)
         
         # Internal signals
         self.project_changed.connect(self._update_project_dependent_ui)
@@ -486,7 +497,7 @@ class MainWindow(QMainWindow):
     def _on_project_changed(self, path: str) -> None:
         """Handle project directory or file change."""
         self.project_changed.emit(path)
-        
+
         # Determine if it's a directory or file
         from pathlib import Path
         path_obj = Path(path)
@@ -498,17 +509,23 @@ class MainWindow(QMainWindow):
             self.log_panel.add_message("info", f"Single file selected: {path}")
             # Apply file type constraints based on selected file
             self.stage_toggles.set_file_type_constraints(path)
+
+        # Enable preview button when a file or directory is selected
+        self.action_buttons.set_preview_enabled(True)
     
     def _on_project_cleared(self) -> None:
         """Handle project selection being cleared."""
         self.project_changed.emit("")
         self.log_panel.add_message("info", "Project selection cleared")
-        
+
         # Clear detected languages in extract configuration
         self.stage_configurators.clear_extract_languages()
-        
+
         # Clear file type constraints
         self.stage_toggles.set_file_type_constraints("")
+
+        # Disable preview button when no project is selected
+        self.action_buttons.set_preview_enabled(False)
     
     def _on_languages_detected(self, detection_result) -> None:
         """Handle subtitle language detection results."""
@@ -732,13 +749,150 @@ class MainWindow(QMainWindow):
             self._settings_dialog = SettingsDialog(self.config_manager, self)
             self._settings_dialog.settings_applied.connect(self._on_settings_applied)
             self._settings_dialog.language_change_requested.connect(self._on_language_change_requested)
-        
+
         # Show settings dialog on Tools tab and refresh detection
         self._settings_dialog.show_tab("tools")
         self._settings_dialog.refresh_tool_detection()
-        self._settings_dialog.show()
-        self._settings_dialog.raise_()
-        self._settings_dialog.activateWindow()
+
+    def _show_video_preview(self) -> None:
+        """Show video preview dialog with subtitle selection."""
+        from PySide6.QtWidgets import QFileDialog
+        from pathlib import Path
+
+        # Select video file
+        selected_path = self.project_selector.get_selected_path()
+        video_file, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Select Video File"),
+            selected_path or "",
+            self.tr("Video Files (*.mkv *.mp4 *.avi *.mov *.wmv *.flv);;All Files (*)")
+        )
+
+        if not video_file:
+            return
+
+        # Find subtitle files in the same directory with the same base name
+        video_path = Path(video_file)
+        subtitle_dir = video_path.parent
+        base_name = video_path.stem
+
+        # Look for subtitle files
+        subtitle_files = []
+        for pattern in ['*.srt', '*.ass', '*.ssa', '*.sub']:
+            for sub_file in subtitle_dir.glob(pattern):
+                # Match files with same base name or base name + language code
+                if sub_file.stem == base_name or sub_file.stem.startswith(f"{base_name}."):
+                    subtitle_files.append(str(sub_file))
+
+        # If no subtitles found, allow user to manually select
+        if not subtitle_files:
+            reply = QMessageBox.question(
+                self,
+                self.tr("No Subtitles Found"),
+                self.tr("No subtitle files were found for this video.\n\nWould you like to select subtitle files manually?"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.Yes:
+                subtitle_files, _ = QFileDialog.getOpenFileNames(
+                    self,
+                    self.tr("Select Subtitle Files"),
+                    str(subtitle_dir),
+                    self.tr("Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)")
+                )
+
+        # Open video preview dialog
+        dialog = VideoPreviewDialog(video_file, subtitle_files, self)
+        dialog.show()
+
+    def _on_preview_clicked(self) -> None:
+        """Handle preview button click from action buttons."""
+        from pathlib import Path
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QDialogButtonBox, QLabel
+
+        selected_path = self.project_selector.get_selected_path()
+        if not selected_path:
+            QMessageBox.warning(
+                self,
+                self.tr("No Selection"),
+                self.tr("Please select a project directory or video file first.")
+            )
+            return
+
+        path_obj = Path(selected_path)
+
+        # If it's a file, preview it directly
+        if path_obj.is_file():
+            if path_obj.suffix.lower() in ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv']:
+                self._preview_video_file(str(path_obj))
+            else:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Invalid File"),
+                    self.tr("Selected file is not a supported video format.")
+                )
+            return
+
+        # If it's a directory, show video selection dialog
+        video_files = []
+        for pattern in ['*.mkv', '*.mp4', '*.avi', '*.mov', '*.wmv', '*.flv']:
+            video_files.extend(path_obj.glob(pattern))
+
+        if not video_files:
+            QMessageBox.information(
+                self,
+                self.tr("No Videos Found"),
+                self.tr("No video files found in the selected directory.")
+            )
+            return
+
+        # Show selection dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.tr("Select Video to Preview"))
+        dialog.setMinimumSize(500, 400)
+
+        layout = QVBoxLayout(dialog)
+
+        label = QLabel(self.tr("Select a video file to preview:"))
+        layout.addWidget(label)
+
+        list_widget = QListWidget()
+        for video_file in sorted(video_files):
+            list_widget.addItem(video_file.name)
+        list_widget.setCurrentRow(0)  # Select first item by default
+        layout.addWidget(list_widget)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec() == QDialog.Accepted:
+            selected_index = list_widget.currentRow()
+            if selected_index >= 0:
+                selected_video = sorted(video_files)[selected_index]
+                self._preview_video_file(str(selected_video))
+
+    def _preview_video_file(self, video_path: str) -> None:
+        """Preview a specific video file with auto-detected subtitles."""
+        from pathlib import Path
+
+        video_path_obj = Path(video_path)
+        subtitle_dir = video_path_obj.parent
+        base_name = video_path_obj.stem
+
+        # Look for subtitle files
+        subtitle_files = []
+        for pattern in ['*.srt', '*.ass', '*.ssa', '*.sub']:
+            for sub_file in subtitle_dir.glob(pattern):
+                # Match files with same base name or base name + language code
+                if sub_file.stem == base_name or sub_file.stem.startswith(f"{base_name}."):
+                    subtitle_files.append(str(sub_file))
+
+        # Open video preview dialog
+        dialog = VideoPreviewDialog(video_path, subtitle_files, self)
+        dialog.show()
     
     def _on_settings_applied(self) -> None:
         """Handle when settings are applied."""
