@@ -6,6 +6,7 @@ Uses mpv for video playback with subtitle overlay.
 """
 
 import sys
+import locale
 from pathlib import Path
 from typing import Optional, List
 from PySide6.QtWidgets import (
@@ -14,6 +15,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
+
+# Fix locale issue for mpv
+try:
+    locale.setlocale(locale.LC_NUMERIC, 'C')
+except Exception:
+    pass
 
 try:
     import mpv
@@ -171,14 +178,23 @@ class VideoPreviewDialog(QDialog):
     def _init_player(self) -> None:
         """Initialize mpv player."""
         try:
-            # Create mpv player instance
+            # Ensure the widget is visible and has a valid window ID
+            self.video_container.show()
+            self.video_container.repaint()
+
+            # Get window ID for embedding
+            wid = int(self.video_container.winId())
+
+            # Create mpv player instance with safe defaults
             self.player = mpv.MPV(
-                wid=str(int(self.video_container.winId())),
+                wid=str(wid),
                 vo='libmpv',
                 keep_open='yes',
                 osc='no',  # Disable on-screen controller (we have our own)
                 input_default_bindings='no',
                 input_vo_keyboard='no',
+                ytdl=False,  # Disable youtube-dl
+                log_handler=lambda level, component, message: None  # Suppress mpv logs
             )
 
             # Load video
@@ -193,10 +209,12 @@ class VideoPreviewDialog(QDialog):
             self.player.volume = 70
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             QMessageBox.critical(
                 self,
                 "Player Error",
-                f"Failed to initialize video player:\n{str(e)}"
+                f"Failed to initialize video player:\n{str(e)}\n\nDetails:\n{error_details}"
             )
             self.reject()
 
