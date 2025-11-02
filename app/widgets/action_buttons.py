@@ -30,6 +30,7 @@ class ActionButtons(QFrame):
     run_clicked = Signal()
     cancel_clicked = Signal()
     open_output_clicked = Signal()
+    preview_clicked = Signal()
     
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
@@ -37,6 +38,7 @@ class ActionButtons(QFrame):
         self._is_running = False
         self._run_enabled = False
         self._output_directory = ""
+        self._preview_enabled = False
         
         self._setup_ui()
         self._connect_signals()
@@ -149,12 +151,43 @@ class ActionButtons(QFrame):
         """)
         self.open_output_button.setEnabled(False)
         layout.addWidget(self.open_output_button)
+
+        # Preview Video button
+        self.preview_button = QPushButton("🎬 Preview Video")
+        self.preview_button.setMinimumSize(140, 40)
+        self.preview_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9c27b0;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid #9c27b0;
+                border-radius: 8px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #ba68c8;
+                border-color: #ba68c8;
+            }
+            QPushButton:pressed {
+                background-color: #7b1fa2;
+                border-color: #7b1fa2;
+            }
+            QPushButton:disabled {
+                background-color: #333;
+                border-color: #333;
+                color: #666;
+            }
+        """)
+        self.preview_button.setEnabled(False)
+        layout.addWidget(self.preview_button)
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
         self.run_button.clicked.connect(self._on_run_clicked)
         self.cancel_button.clicked.connect(self._on_cancel_clicked)
         self.open_output_button.clicked.connect(self._on_open_output_clicked)
+        self.preview_button.clicked.connect(self._on_preview_clicked)
     
     def _on_run_clicked(self) -> None:
         """Handle run button click."""
@@ -169,6 +202,10 @@ class ActionButtons(QFrame):
     def _on_open_output_clicked(self) -> None:
         """Handle open output button click."""
         self.open_output_clicked.emit()
+
+    def _on_preview_clicked(self) -> None:
+        """Handle preview button click."""
+        self.preview_clicked.emit()
     
     def set_running_state(self, running: bool) -> None:
         """Set the running state and update button states accordingly."""
@@ -192,11 +229,16 @@ class ActionButtons(QFrame):
         self._output_directory = directory
         has_output = bool(directory and Path(directory).exists())
         self.open_output_button.setEnabled(has_output)
-        
+
         if has_output:
             self.open_output_button.setToolTip(f"Open {directory}")
         else:
             self.open_output_button.setToolTip("No output directory available")
+
+    def set_preview_enabled(self, enabled: bool) -> None:
+        """Enable or disable the preview button."""
+        self._preview_enabled = enabled
+        self.preview_button.setEnabled(enabled and not self._is_running)
     
     def set_processing_complete(self, success: bool = True, message: str = "") -> None:
         """Set the state to indicate processing completion."""
@@ -276,10 +318,13 @@ class ActionButtons(QFrame):
         """Update button enabled states based on current conditions."""
         # Run button: enabled if not running and configuration is valid
         self.run_button.setEnabled(not self._is_running and self._run_enabled)
-        
+
         # Cancel button: enabled only when running
         self.cancel_button.setEnabled(self._is_running)
-        
+
+        # Preview button: enabled if preview is enabled and not running
+        self.preview_button.setEnabled(self._preview_enabled and not self._is_running)
+
         # Update button text based on running state
         if self._is_running:
             self.run_button.setText(self.tr("Running..."))
