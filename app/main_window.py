@@ -753,10 +753,11 @@ class MainWindow(QMainWindow):
         from pathlib import Path
 
         # Select video file
+        selected_path = self.project_selector.get_selected_path()
         video_file, _ = QFileDialog.getOpenFileName(
             self,
             self.tr("Select Video File"),
-            self.project_selector.selected_path or "",
+            selected_path or "",
             self.tr("Video Files (*.mkv *.mp4 *.avi *.mov *.wmv *.flv);;All Files (*)")
         )
 
