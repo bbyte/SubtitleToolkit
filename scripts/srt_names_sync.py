@@ -104,7 +104,7 @@ class SRTNamesSync:
                 if not api_key:
                     raise ValueError("OPENAI_API_KEY environment variable not set")
                 self.openai_client = openai.OpenAI(api_key=api_key)
-            
+
             elif self.provider == LLMProvider.CLAUDE:
                 api_key = os.getenv('ANTHROPIC_API_KEY')
                 if not api_key:

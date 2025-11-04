@@ -552,6 +552,7 @@ class SyncConfigWidget(QFrame):
         self._config_manager = config_manager
         self._setup_ui()
         self._connect_signals()
+        self._load_api_key_from_settings()
     
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -655,6 +656,30 @@ class SyncConfigWidget(QFrame):
         # Update model options based on provider
         self._update_model_options()
     
+    def _load_api_key_from_settings(self) -> None:
+        """Load API key from settings if UI field is empty."""
+        # Only load if the field is empty
+        if self.api_key_edit.text().strip():
+            return
+
+        if not self._config_manager:
+            return
+
+        # Get current provider
+        provider_text = self.provider_combo.currentText().lower()
+
+        # Map to settings key (Sync uses 'claude', but settings uses 'anthropic')
+        settings_provider = 'anthropic' if provider_text == 'claude' else provider_text
+
+        # Load from settings
+        settings = self._config_manager.get_settings()
+        translators_config = settings.get('translators', {})
+        provider_config = translators_config.get(settings_provider, {})
+        api_key = provider_config.get('api_key', '').strip()
+
+        if api_key:
+            self.api_key_edit.setText(api_key)
+
     def _connect_signals(self) -> None:
         """Connect internal signals."""
         self.use_translate_settings_checkbox.toggled.connect(self._on_use_translate_toggled)
@@ -690,6 +715,7 @@ class SyncConfigWidget(QFrame):
     def _on_provider_changed(self) -> None:
         """Handle provider selection change."""
         self._update_model_options()
+        self._load_api_key_from_settings()  # Reload API key for new provider
         self.config_changed.emit()
 
     def _update_model_options(self) -> None:
