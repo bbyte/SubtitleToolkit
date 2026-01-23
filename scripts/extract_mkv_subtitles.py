@@ -257,14 +257,17 @@ def parse_time(time_str):
 
 
 def extract_subtitle(mkv_file, track_index, output_file, overwrite=False):
-    """Extract subtitle track from MKV file with progress."""
+    """Extract subtitle track from MKV file with progress.
+
+    Automatically converts ASS/SSA subtitles to SRT format.
+    """
     duration = get_duration(mkv_file)
 
     cmd = [
         "ffmpeg",
         "-i", str(mkv_file),
         "-map", f"0:{track_index}",
-        "-c:s", "copy",
+        "-c:s", "srt",  # Convert to SRT format (handles ASS/SSA conversion)
         str(output_file),
     ]
 
@@ -344,6 +347,8 @@ def main():
                         help="Directory containing MKV files or path to single MKV file (default: current directory)")
     parser.add_argument("-l", "--language", default="eng",
                         help="Language code for subtitle track (default: eng)")
+    parser.add_argument("-t", "--track-indices", type=str, default=None,
+                        help="Comma-separated list of specific track indices to extract (e.g., '2,3,5'). When specified, overrides language-based selection.")
     parser.add_argument("-o", "--output", default=None,
                         help="Output directory for extracted subtitles (default: same as input)")
     parser.add_argument("--overwrite", action="store_true",
@@ -352,9 +357,24 @@ def main():
                         help="Output structured JSONL events to stdout")
     
     args = parser.parse_args()
-    
+
     # Set global JSONL mode
     jsonl_mode = args.jsonl
+
+    # Parse track indices if provided
+    specific_tracks = None
+    if args.track_indices:
+        try:
+            specific_tracks = [int(idx.strip()) for idx in args.track_indices.split(',')]
+            info_msg = f"Using specific track indices: {specific_tracks}"
+            emit_jsonl("info", info_msg, data={"track_indices": specific_tracks})
+            if not jsonl_mode:
+                print_colored(f"{Colors.CYAN}🎯 {info_msg}{Colors.ENDC}")
+        except ValueError:
+            error_msg = f"Invalid track indices format: '{args.track_indices}'. Expected comma-separated numbers (e.g., '2,3,5')"
+            emit_jsonl("error", error_msg)
+            print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
+            sys.exit(1)
     
     # Print banner
     print_banner()
@@ -448,54 +468,96 @@ def main():
         info_msg = f"Found {len(subtitle_tracks)} subtitle track(s) in {mkv_file.name}"
         emit_jsonl("info", info_msg, data={"file": str(mkv_file), "track_count": len(subtitle_tracks)})
         print_colored(f"  {Colors.GREEN}✓ Found {len(subtitle_tracks)} subtitle track(s){Colors.ENDC}")
-        
-        # Find desired language track
-        track_index = find_subtitle_track(subtitle_tracks, args.language)
-        
-        if track_index is None:
-            warning_msg = f"No {args.language} subtitle track found in {mkv_file.name}"
-            emit_jsonl("warning", warning_msg, data={"file": str(mkv_file), "language": args.language})
-            print_colored(f"  {Colors.RED}✗ No {args.language} subtitle track found{Colors.ENDC}")
-            failed += 1
-            skipped_files.append({"file": str(mkv_file), "reason": f"No {args.language} subtitle track found"})
-            print_progress_bar(i, len(mkv_files), prefix='Overall Progress:', 
-                             suffix=f'{successful} success, {failed} failed')
-            print_colored("")
-            continue
-        
-        # Create output filename
-        if args.output:
-            # Use specified output directory
-            output_dir = Path(args.output)
-            output_file = output_dir / f"{mkv_file.stem}.srt"
+
+        # Determine which tracks to extract
+        tracks_to_extract = []
+
+        if specific_tracks:
+            # Use user-specified track indices
+            # Verify that specified tracks exist in this file
+            available_indices = [track["index"] for track in subtitle_tracks]
+            for idx in specific_tracks:
+                if idx in available_indices:
+                    tracks_to_extract.append(idx)
+                else:
+                    warning_msg = f"Track index {idx} not found in {mkv_file.name} (available: {available_indices})"
+                    emit_jsonl("warning", warning_msg, data={"file": str(mkv_file), "requested_index": idx, "available_indices": available_indices})
+                    print_colored(f"  {Colors.YELLOW}⚠ {warning_msg}{Colors.ENDC}")
+
+            if not tracks_to_extract:
+                warning_msg = f"None of the specified tracks found in {mkv_file.name}"
+                emit_jsonl("warning", warning_msg, data={"file": str(mkv_file), "requested_tracks": specific_tracks})
+                print_colored(f"  {Colors.RED}✗ {warning_msg}{Colors.ENDC}")
+                failed += 1
+                skipped_files.append({"file": str(mkv_file), "reason": "Specified tracks not found"})
+                print_progress_bar(i, len(mkv_files), prefix='Overall Progress:',
+                                 suffix=f'{successful} success, {failed} failed')
+                print_colored("")
+                continue
         else:
-            # Use same directory as input
-            output_file = mkv_file.with_suffix(".srt")
+            # Find desired language track using automatic detection
+            track_index = find_subtitle_track(subtitle_tracks, args.language)
 
-        # Check if output file already exists and skip if not overwriting
-        if output_file.exists() and not args.overwrite:
-            skip_msg = f"Skipping {mkv_file.name} - subtitle file already exists: {output_file.name}"
-            emit_jsonl("info", skip_msg, data={"file": str(mkv_file), "output_file": str(output_file), "reason": "already_exists"})
-            print_colored(f"  {Colors.YELLOW}⊘ Skipping - {output_file.name} already exists{Colors.ENDC}")
-            skipped_files.append({"file": str(mkv_file), "reason": "Output file already exists"})
-            print_colored("")
-            continue
+            if track_index is None:
+                warning_msg = f"No {args.language} subtitle track found in {mkv_file.name}"
+                emit_jsonl("warning", warning_msg, data={"file": str(mkv_file), "language": args.language})
+                print_colored(f"  {Colors.RED}✗ No {args.language} subtitle track found{Colors.ENDC}")
+                failed += 1
+                skipped_files.append({"file": str(mkv_file), "reason": f"No {args.language} subtitle track found"})
+                print_progress_bar(i, len(mkv_files), prefix='Overall Progress:',
+                                 suffix=f'{successful} success, {failed} failed')
+                print_colored("")
+                continue
 
-        # Extract subtitle
-        info_msg = f"Extracting track {track_index} from {mkv_file.name} to {output_file.name}"
-        emit_jsonl("info", info_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file)})
-        print_colored(f"  {Colors.CYAN}📝 Track {track_index} → {output_file.name}{Colors.ENDC}")
+            tracks_to_extract = [track_index]
 
-        if extract_subtitle(mkv_file, track_index, output_file, overwrite=args.overwrite):
-            success_msg = f"Successfully extracted subtitle from {mkv_file.name}"
-            emit_jsonl("info", success_msg, data={"file": str(mkv_file), "output_file": str(output_file)})
-            print_colored(f"  {Colors.GREEN}✓ Successfully extracted!{Colors.ENDC}")
+        # Extract each selected track
+        file_successful = True
+        for track_idx, track_index in enumerate(tracks_to_extract):
+            # Create output filename
+            if args.output:
+                # Use specified output directory
+                output_dir = Path(args.output)
+                if len(tracks_to_extract) > 1:
+                    # Multiple tracks - add track number suffix
+                    output_file = output_dir / f"{mkv_file.stem}.{track_idx + 1}.srt"
+                else:
+                    output_file = output_dir / f"{mkv_file.stem}.srt"
+            else:
+                # Use same directory as input
+                if len(tracks_to_extract) > 1:
+                    # Multiple tracks - add track number suffix
+                    output_file = mkv_file.parent / f"{mkv_file.stem}.{track_idx + 1}.srt"
+                else:
+                    output_file = mkv_file.with_suffix(".srt")
+
+            # Check if output file already exists and skip if not overwriting
+            if output_file.exists() and not args.overwrite:
+                skip_msg = f"Skipping track {track_index} - subtitle file already exists: {output_file.name}"
+                emit_jsonl("info", skip_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file), "reason": "already_exists"})
+                print_colored(f"  {Colors.YELLOW}⊘ Skipping track {track_index} - {output_file.name} already exists{Colors.ENDC}")
+                continue
+
+            # Extract subtitle
+            info_msg = f"Extracting track {track_index} from {mkv_file.name} to {output_file.name}"
+            emit_jsonl("info", info_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file)})
+            print_colored(f"  {Colors.CYAN}📝 Track {track_index} → {output_file.name}{Colors.ENDC}")
+
+            if extract_subtitle(mkv_file, track_index, output_file, overwrite=args.overwrite):
+                success_msg = f"Successfully extracted track {track_index} from {mkv_file.name}"
+                emit_jsonl("info", success_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file)})
+                print_colored(f"  {Colors.GREEN}✓ Successfully extracted track {track_index}!{Colors.ENDC}")
+                outputs.append({"input_file": str(mkv_file), "output_file": str(output_file), "track_index": track_index})
+            else:
+                print_colored(f"  {Colors.RED}✗ Extraction of track {track_index} failed!{Colors.ENDC}")
+                file_successful = False
+                skipped_files.append({"file": str(mkv_file), "track_index": track_index, "reason": "Extraction failed"})
+
+        # Update overall counters
+        if file_successful and len(tracks_to_extract) > 0:
             successful += 1
-            outputs.append({"input_file": str(mkv_file), "output_file": str(output_file)})
-        else:
-            print_colored(f"  {Colors.RED}✗ Extraction failed!{Colors.ENDC}")
+        elif not file_successful:
             failed += 1
-            skipped_files.append({"file": str(mkv_file), "reason": "Extraction failed"})
         
         print_progress_bar(i, len(mkv_files), prefix='Overall Progress:', 
                          suffix=f'{successful} success, {failed} failed')
@@ -528,6 +590,11 @@ def main():
         print_colored(f"\n{Colors.GREEN}🎉 Subtitle extraction complete!{Colors.ENDC}")
     else:
         print_colored(f"\n{Colors.YELLOW}⚠ No subtitles were extracted.{Colors.ENDC}")
+
+    # Return proper exit code based on results
+    if failed > 0:
+        sys.exit(1)  # Exit with error if any files failed
+    sys.exit(0)
 
 
 if __name__ == "__main__":

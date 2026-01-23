@@ -13,16 +13,19 @@ from pathlib import Path
 @dataclass
 class ExtractConfig:
     """Configuration for MKV subtitle extraction."""
-    
+
     # Input configuration (can be directory or single file path)
     input_directory: str
     language_code: str = "eng"  # Default to English
     output_directory: Optional[str] = None  # None means same as input
-    
+
+    # Track selection
+    track_indices: List[int] = field(default_factory=list)  # Specific track indices to extract
+
     # Processing options
     recursive: bool = True
     overwrite_existing: bool = False
-    
+
     # Tool paths (from settings)
     ffmpeg_path: Optional[str] = None
     ffprobe_path: Optional[str] = None
@@ -67,7 +70,12 @@ class ExtractConfig:
         """Convert configuration to CLI arguments for extract_mkv_subtitles.py."""
         args = [self.input_directory]
 
-        if self.language_code != "eng":
+        # Add track indices if specified (overrides language-based selection)
+        if self.track_indices:
+            indices_str = ",".join(str(idx) for idx in self.track_indices)
+            args.extend(["-t", indices_str])
+        elif self.language_code != "eng":
+            # Only add language if no specific tracks are specified
             args.extend(["-l", self.language_code])
 
         if self.output_directory:
@@ -154,19 +162,26 @@ class TranslateConfig:
                 return False, f"Output path is not a directory: {self.output_directory}"
         
         # Validate provider (both script names and internal names)
-        valid_providers = ["openai", "claude", "local", "anthropic", "lm_studio"]
+        valid_providers = ["openai", "claude", "openrouter", "local", "anthropic", "lm_studio"]
         if self.provider not in valid_providers:
             return False, f"Invalid provider: {self.provider}. Must be one of {valid_providers}"
-        
+
         # Check API key for external providers with detailed error messages
-        if self.provider in ["openai", "claude", "anthropic"]:
+        if self.provider in ["openai", "claude", "anthropic", "openrouter"]:
             if not self.api_key:
-                provider_display = "Claude" if self.provider in ["claude", "anthropic"] else self.provider.upper()
-                env_var = "ANTHROPIC_API_KEY" if self.provider in ["claude", "anthropic"] else "OPENAI_API_KEY"
+                if self.provider in ["claude", "anthropic"]:
+                    provider_display = "Claude"
+                    env_var = "ANTHROPIC_API_KEY"
+                elif self.provider == "openrouter":
+                    provider_display = "OpenRouter"
+                    env_var = "OPENROUTER_API_KEY"
+                else:
+                    provider_display = self.provider.upper()
+                    env_var = "OPENAI_API_KEY"
                 return False, (f"API key required for {provider_display} provider. "
                               f"Please set the API key in Settings > Translators > {provider_display} "
                               f"or set the {env_var} environment variable.")
-            
+
             # Validate API key format for better error detection
             if self.provider in ["claude", "anthropic"]:
                 if not self.api_key.startswith("sk-ant-"):
@@ -176,6 +191,10 @@ class TranslateConfig:
                 if not self.api_key.startswith("sk-"):
                     return False, ("Invalid OpenAI API key format. OpenAI API keys should start with 'sk-'. "
                                  "Please check your API key in Settings > Translators > OpenAI.")
+            elif self.provider == "openrouter":
+                if not self.api_key.startswith("sk-or-"):
+                    return False, ("Invalid OpenRouter API key format. OpenRouter API keys should start with 'sk-or-'. "
+                                 "Please check your API key in Settings > Translators > OpenRouter.")
         
         # Validate model is specified
         if not self.model:
@@ -246,12 +265,14 @@ class TranslateConfig:
     def get_env_vars(self) -> Dict[str, str]:
         """Get environment variables needed for the script."""
         env = {}
-        
+
         if self.provider == "openai" and self.api_key:
             env["OPENAI_API_KEY"] = self.api_key
         elif self.provider in ["anthropic", "claude"] and self.api_key:
             env["ANTHROPIC_API_KEY"] = self.api_key
-        
+        elif self.provider == "openrouter" and self.api_key:
+            env["OPENROUTER_API_KEY"] = self.api_key
+
         return env
 
 
@@ -296,7 +317,7 @@ class SyncConfig:
         
         # Validate provider
         # Note: Sync script expects 'claude' not 'anthropic'
-        valid_providers = ["openai", "claude"]
+        valid_providers = ["openai", "claude", "openrouter"]
         if self.provider not in valid_providers:
             return False, f"Invalid provider: {self.provider}. Must be one of {valid_providers}"
         
@@ -363,10 +384,12 @@ class SyncConfig:
     def get_env_vars(self) -> Dict[str, str]:
         """Get environment variables needed for the script."""
         env = {}
-        
+
         if self.provider == "openai" and self.api_key:
             env["OPENAI_API_KEY"] = self.api_key
         elif self.provider in ["anthropic", "claude"] and self.api_key:
             env["ANTHROPIC_API_KEY"] = self.api_key
-        
+        elif self.provider == "openrouter" and self.api_key:
+            env["OPENROUTER_API_KEY"] = self.api_key
+
         return env

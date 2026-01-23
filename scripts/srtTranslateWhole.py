@@ -21,6 +21,7 @@ load_dotenv()
 openai_client = None
 anthropic_client = None
 lmstudio_client = None
+openrouter_client = None
 
 def get_openai_client(api_key=None):
     """Get OpenAI client, initializing if needed."""
@@ -52,9 +53,32 @@ def get_lmstudio_client():
         )
     return lmstudio_client
 
+def get_openrouter_client(api_key=None):
+    """Get OpenRouter client, initializing if needed."""
+    global openrouter_client
+    if openrouter_client is None:
+        api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OpenRouter API key is required")
+        openrouter_client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
+    return openrouter_client
+
 # Available models
 OPENAI_MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-4-turbo-preview", "gpt-3.5-turbo"]
-CLAUDE_MODELS = ["claude-3-opus-20240229", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-haiku-20240307"]
+CLAUDE_MODELS = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"]
+OPENROUTER_MODELS = [
+    "anthropic/claude-sonnet-4-5-20250929",
+    "anthropic/claude-haiku-4-5-20251001",
+    "anthropic/claude-opus-4-5-20251101",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "google/gemini-pro-1.5",
+    "meta-llama/llama-3.1-405b-instruct",
+    "custom"  # Allow custom model IDs
+]
 LMSTUDIO_MODELS = ["local"]
 
 # Maximum retries for invalid chunks
@@ -62,6 +86,30 @@ MAX_RETRIES = 3
 
 # Global JSONL mode flag
 JSONL_MODE = False
+
+
+class FatalTranslationError(Exception):
+    """Exception for fatal errors that should stop all translation immediately."""
+    pass
+
+
+def is_authentication_error(error):
+    """Check if an error is an authentication/authorization error that shouldn't be retried."""
+    error_str = str(error).lower()
+    # Check for common authentication error patterns
+    auth_patterns = [
+        'authentication_error',
+        'invalid x-api-key',
+        'invalid api key',
+        'invalid_api_key',
+        'unauthorized',
+        'error code: 401',
+        'status code: 401',
+        '401 unauthorized',
+        'api key is required',
+        'api_key_invalid',
+    ]
+    return any(pattern in error_str for pattern in auth_patterns)
 
 def emit_jsonl(event_type, msg, progress=None, data=None):
     """Emit a JSONL event to stdout if in JSONL mode"""
@@ -165,8 +213,8 @@ def split_into_chunks(content, chunk_size=50):
     return chunks
 
 def get_system_prompt(provider, source_lang="English", target_lang="Bulgarian", context=None):
-    if provider == "openai":
-        prompt = f"""You are a translator that translates subtitles from {source_lang} to {target_lang}. 
+    if provider == "openai" or provider == "openrouter":
+        prompt = f"""You are a translator that translates subtitles from {source_lang} to {target_lang}.
         CRITICAL RULES:
         1. Output ONLY the translated subtitles
         2. DO NOT add any formatting marks like ``` or markdown
@@ -181,7 +229,7 @@ def get_system_prompt(provider, source_lang="English", target_lang="Bulgarian", 
         8. Keep ALL empty lines exactly as they are
         9. DO NOT add or remove any lines
         10. DO NOT wrap the output in any code block or formatting
-        
+
         Output the translation EXACTLY as provided, with NO additional formatting."""
     elif provider == "claude":
         prompt = f"""IMPORTANT: You are a subtitle translator working in COMPLETE SILENCE mode.
@@ -626,6 +674,8 @@ def retry_translation_with_split(chunk, provider, model, system_prompt, split_de
             translated = translate_with_openai(chunk, model, system_prompt)
         elif provider == "claude":
             translated = translate_with_claude(chunk, model, system_prompt)
+        elif provider == "openrouter":
+            translated = translate_with_openrouter(chunk, model, system_prompt)
         else:  # lmstudio
             translated = translate_with_lmstudio(chunk, model, system_prompt)
         
@@ -656,7 +706,11 @@ def retry_translation_with_split(chunk, provider, model, system_prompt, split_de
             tqdm.write(f"\033[91m❌ {error_msg}\033[0m")
         else:
             emit_jsonl("error", error_msg)
-    
+
+        # Check if this is an authentication error - if so, stop immediately
+        if is_authentication_error(e):
+            raise FatalTranslationError(f"Authentication failed: {str(e)}")
+
     # If we've reached max splits, return the original chunk with a warning
     if split_depth >= max_splits:
         warning_msg = "Max split depth reached. Some subtitles may be invalid."
@@ -766,12 +820,29 @@ def translate_with_lmstudio(content, model, system_prompt):
             emit_jsonl("error", helper_msg)
         sys.exit(1)
 
+def translate_with_openrouter(content, model, system_prompt):
+    client = get_openrouter_client()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Translate this content to Bulgarian. Output ONLY the translation with NO formatting:\n\n{content}"}
+        ],
+        temperature=0.1,
+        max_tokens=4000
+    )
+    translated_text = response.choices[0].message.content.strip()
+    return clean_openai_response(translated_text)
+
 def process_chunk(data):
     """Process a single chunk of subtitles"""
     chunk, index, provider, model, system_prompt = data
     try:
         translated_text, success = retry_translation_with_split(chunk, provider, model, system_prompt)
         return index, translated_text
+    except FatalTranslationError:
+        # Re-raise fatal errors to stop all processing
+        raise
     except Exception as e:
         error_msg = f"ERROR: Failed to translate chunk {index + 1}: {str(e)}"
         if not JSONL_MODE:
@@ -811,7 +882,8 @@ def translate_srt_content(content, context=None, provider="openai", model=None, 
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_chunk = {executor.submit(process_chunk, data): data[1] for data in chunk_data}
-        
+        fatal_error = None
+
         if JSONL_MODE:
             # JSONL mode - no tqdm progress bar
             completed_chunks = 0
@@ -827,6 +899,13 @@ def translate_srt_content(content, context=None, provider="openai", model=None, 
                     completed_chunks += 1
                     progress = int((completed_chunks / total_chunks) * 100)
                     emit_jsonl("progress", f"Translation progress: {completed_chunks}/{total_chunks} chunks", progress)
+                except FatalTranslationError as e:
+                    # Authentication or other fatal error - cancel all pending futures and stop
+                    fatal_error = e
+                    emit_jsonl("error", f"Fatal error: {str(e)}")
+                    for f in future_to_chunk:
+                        f.cancel()
+                    break
                 except Exception as e:
                     emit_jsonl("error", f"Chunk {chunk_index + 1} generated an exception: {str(e)}")
         else:
@@ -836,7 +915,7 @@ def translate_srt_content(content, context=None, provider="openai", model=None, 
                      unit="chunk",
                      bar_format="{desc}: {percentage:3.0f}%|{bar:30}\033[92m|\033[0m{n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
                      colour='green') as pbar:
-                
+
                 for future in concurrent.futures.as_completed(future_to_chunk):
                     chunk_index = future_to_chunk[future]
                     try:
@@ -846,8 +925,26 @@ def translate_srt_content(content, context=None, provider="openai", model=None, 
                         else:
                             translated_chunks[index] = translated_text
                         pbar.update(1)
+                    except FatalTranslationError as e:
+                        # Authentication or other fatal error - cancel all pending futures and stop
+                        fatal_error = e
+                        tqdm.write(f"\033[91m\n❌ Fatal error: {str(e)}\033[0m")
+                        for f in future_to_chunk:
+                            f.cancel()
+                        break
                     except Exception as e:
                         tqdm.write(f"\033[91mChunk {chunk_index + 1} generated an exception: {str(e)}\033[0m")
+
+        # If there was a fatal error, exit with error code
+        if fatal_error:
+            error_msg = str(fatal_error)
+            if JSONL_MODE:
+                emit_jsonl("result", "Translation failed", 0, {
+                    "success": False,
+                    "error": error_msg,
+                    "error_type": "authentication_error" if "authentication" in error_msg.lower() else "fatal_error"
+                })
+            sys.exit(1)
 
     # Check for any failed chunks
     if any(chunk is None for chunk in translated_chunks):
@@ -1035,7 +1132,7 @@ if __name__ == "__main__":
     group.add_argument("-d", "--directory", help="Path to directory containing SRT files")
     parser.add_argument("-o", "--output", help="Output file path (optional)")
     parser.add_argument("-c", "--context", help="Context about the film/show to improve translation")
-    parser.add_argument("-p", "--provider", choices=["openai", "claude", "local"], default="openai", help="Translation provider")
+    parser.add_argument("-p", "--provider", choices=["openai", "claude", "openrouter", "local"], default="openai", help="Translation provider")
     parser.add_argument("-m", "--model", help="Model to use (provider-specific)")
     parser.add_argument("-w", "--workers", type=int, help="Number of concurrent workers")
     parser.add_argument("-s", "--chunk-size", type=int, help="Number of subtitles per chunk")
@@ -1061,11 +1158,21 @@ if __name__ == "__main__":
             sys.exit(1)
     elif args.provider == "claude":
         if not args.model:
-            args.model = "claude-3-5-sonnet-20241022"
+            args.model = "claude-haiku-4-5-20251001"
         elif args.model not in CLAUDE_MODELS:
             error_msg = f"Error: Invalid Claude model. Available models: {', '.join(CLAUDE_MODELS)}"
             log_output(error_msg, "", "error")
             sys.exit(1)
+    elif args.provider == "openrouter":
+        if not args.model:
+            args.model = "anthropic/claude-haiku-4-5-20251001"
+        elif args.model not in OPENROUTER_MODELS and args.model != "custom":
+            # Allow any model ID if it's not in the list (for custom models)
+            # Just validate it's not empty
+            if not args.model.strip():
+                error_msg = f"Error: Model name cannot be empty. Suggested models: {', '.join(OPENROUTER_MODELS[:-1])}"
+                log_output(error_msg, "", "error")
+                sys.exit(1)
     else:  # lmstudio
         args.model = "local"  # LM Studio always uses the currently loaded model
 

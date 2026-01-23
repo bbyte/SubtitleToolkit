@@ -21,6 +21,7 @@ from PySide6.QtGui import QFont
 
 from ..config.settings_schema import SettingsSchema
 from ..utils.mkv_language_detector import LanguageDetectionResult
+from ..dialogs.track_selection_dialog import TrackSelectionDialog
 
 
 class QCollapsibleGroupBox(QGroupBox):
@@ -131,15 +132,17 @@ class ValidationResult:
 
 class ExtractConfigWidget(QFrame):
     """Configuration widget for the Extract stage."""
-    
+
     config_changed = Signal()
-    
+
     def __init__(self, config_manager=None, parent: QWidget = None):
         super().__init__(parent)
         self._project_directory = ""
         self._config_manager = config_manager
         self._detected_languages = []  # Store detected languages from MKV files
         self._has_language_detection = False  # Track if language detection has been performed
+        self._detection_result: Optional[LanguageDetectionResult] = None  # Full detection result
+        self._selected_track_indices: List[int] = []  # User-selected track indices
         self._setup_ui()
         self._connect_signals()
         self._load_saved_language_preference()
@@ -198,7 +201,41 @@ class ExtractConfigWidget(QFrame):
     def _on_language_changed(self) -> None:
         """Handle language selection change."""
         self._save_language_preference()
+
+        # Check if we have detection result and if multiple tracks exist for this language
+        language_code = self.language_combo.currentData()
+        if language_code and self._detection_result:
+            if self._detection_result.has_multiple_tracks_for_language(language_code):
+                # Show track selection dialog
+                self._show_track_selection_dialog(language_code)
+            else:
+                # Single track - auto-select it
+                tracks = self._detection_result.get_unique_tracks_for_language(language_code)
+                if tracks:
+                    self._selected_track_indices = [tracks[0].index]
+                else:
+                    self._selected_track_indices = []
+
         self.config_changed.emit()
+
+    def _show_track_selection_dialog(self, language_code: str) -> None:
+        """Show dialog for selecting which track(s) to extract."""
+        if not self._detection_result:
+            return
+
+        tracks = self._detection_result.get_unique_tracks_for_language(language_code)
+        if not tracks:
+            return
+
+        language_name = self.language_combo.currentText().split(" (")[0]  # Get display name
+        selected = TrackSelectionDialog.select_tracks(tracks, language_name, self)
+
+        if selected is not None:
+            self._selected_track_indices = selected
+        else:
+            # User cancelled - keep previous selection or select first track
+            if not self._selected_track_indices:
+                self._selected_track_indices = [tracks[0].index]
     
     def _load_saved_language_preference(self) -> None:
         """Load saved language preference from settings."""
@@ -255,16 +292,17 @@ class ExtractConfigWidget(QFrame):
     def update_detected_languages(self, detection_result: LanguageDetectionResult) -> None:
         """Update the language dropdown with detected languages from MKV files."""
         self._has_language_detection = True
-        
+        self._detection_result = detection_result  # Store full result for track selection
+
         # Handle errors first
         if detection_result.errors:
             error_msg = "Language detection issues: " + "; ".join(detection_result.errors[:2])
             self._show_language_status("warning", error_msg)
-        
+
         # Check if no languages were detected
         if not detection_result.available_languages:
             if detection_result.total_files > 0:
-                self._show_language_status("error", 
+                self._show_language_status("error",
                     f"No subtitle tracks found in {detection_result.total_files} MKV file(s). "
                     "Subtitle extraction is not possible.")
                 self.language_combo.setEnabled(False)
@@ -272,22 +310,30 @@ class ExtractConfigWidget(QFrame):
             else:
                 self._show_language_status("warning", "No MKV files found for language detection.")
                 return
-        
+
         # Store detected languages
         self._detected_languages = detection_result.available_languages.copy()
-        
+
         # Get current selection to preserve it if possible
         current_selection = self.language_combo.currentData()
-        
+
+        # Block signals while updating combo to avoid triggering dialog
+        self.language_combo.blockSignals(True)
+
         # Update combo box with detected languages
         self.language_combo.clear()
         self.language_combo.setEnabled(True)
-        
-        # Add detected languages
+
+        # Add detected languages with track count info
         for code, name in self._detected_languages:
-            display_text = f"{name} ({code})"
+            tracks = detection_result.get_unique_tracks_for_language(code)
+            track_count = len(tracks)
+            if track_count > 1:
+                display_text = f"{name} ({code}) - {track_count} tracks"
+            else:
+                display_text = f"{name} ({code})"
             self.language_combo.addItem(display_text, code)
-        
+
         # Try to restore previous selection if it's available in detected languages
         available_codes = [code for code, _ in self._detected_languages]
         if current_selection and current_selection in available_codes:
@@ -298,23 +344,38 @@ class ExtractConfigWidget(QFrame):
         elif self._detected_languages:
             # Otherwise, select the first detected language
             self.language_combo.setCurrentIndex(0)
-        
+
+        # Re-enable signals
+        self.language_combo.blockSignals(False)
+
+        # Pre-select track(s) for the current language (without showing dialog)
+        # Dialog will only show when user actively changes language selection
+        selected_code = self.language_combo.currentData()
+        if selected_code:
+            tracks = detection_result.get_unique_tracks_for_language(selected_code)
+            if tracks:
+                # Auto-select first track by default (or default track if flagged)
+                default_track = next((t for t in tracks if t.default), tracks[0])
+                self._selected_track_indices = [default_track.index]
+
         # Show success status
         lang_count = len(self._detected_languages)
         files_with_subs = detection_result.files_with_subtitles
         total_files = detection_result.total_files
-        
+
         if files_with_subs == total_files:
             status_msg = f"Found {lang_count} subtitle language(s) in {total_files} MKV file(s)"
         else:
             status_msg = f"Found {lang_count} subtitle language(s) in {files_with_subs}/{total_files} MKV file(s)"
-        
+
         self._show_language_status("info", status_msg)
     
     def clear_detected_languages(self) -> None:
         """Clear detected languages and revert to default language list."""
         self._detected_languages = []
         self._has_language_detection = False
+        self._detection_result = None
+        self._selected_track_indices = []
         self.language_combo.setEnabled(True)
         self._populate_default_languages()
         self._hide_language_status()
@@ -353,8 +414,13 @@ class ExtractConfigWidget(QFrame):
             'output_directory': self.output_dir_edit.text() or self._project_directory,
             'format': 'srt',  # Fixed to SRT format only
             'extract_all': self.extract_all_checkbox.isChecked(),
-            'overwrite_existing': self.overwrite_checkbox.isChecked()
+            'overwrite_existing': self.overwrite_checkbox.isChecked(),
+            'track_indices': self._selected_track_indices.copy() if self._selected_track_indices else []
         }
+
+    def get_selected_track_indices(self) -> List[int]:
+        """Get the list of user-selected track indices."""
+        return self._selected_track_indices.copy()
     
     def validate(self) -> ValidationResult:
         """Validate the current configuration."""
@@ -378,13 +444,15 @@ class ExtractConfigWidget(QFrame):
 
 class TranslateConfigWidget(QFrame):
     """Configuration widget for the Translate stage."""
-    
+
     config_changed = Signal()
-    
-    def __init__(self, parent: QWidget = None):
+
+    def __init__(self, config_manager=None, parent: QWidget = None):
         super().__init__(parent)
+        self._config_manager = config_manager
         self._setup_ui()
         self._connect_signals()
+        self._load_api_key_from_settings()
     
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -414,7 +482,7 @@ class TranslateConfigWidget(QFrame):
         
         # Translation engine
         self.engine_combo = QComboBox()
-        self.engine_combo.addItems(["OpenAI", "Claude", "LM Studio"])
+        self.engine_combo.addItems(["OpenAI", "Claude", "OpenRouter", "LM Studio"])
         layout.addRow("Translation Engine:", self.engine_combo)
         
         # Model selection (engine-specific)
@@ -463,28 +531,108 @@ class TranslateConfigWidget(QFrame):
     def _on_engine_changed(self) -> None:
         """Handle engine selection change."""
         self._update_model_options()
+        self._load_api_key_from_settings()
         self.config_changed.emit()
+
+    def _load_api_key_from_settings(self) -> None:
+        """Load API key from settings if UI field is empty."""
+        # Only load if the field is empty
+        if self.api_key_edit.text().strip():
+            return
+
+        if not self._config_manager:
+            return
+
+        # Get current engine/provider
+        engine_text = self.engine_combo.currentText().lower().replace(' ', '_')
+
+        # Map engine names to settings keys
+        engine_to_settings = {
+            'openai': 'openai',
+            'claude': 'anthropic',
+            'openrouter': 'openrouter',
+            'lm_studio': 'lm_studio'
+        }
+        settings_provider = engine_to_settings.get(engine_text, engine_text)
+
+        # Load from settings
+        settings = self._config_manager.get_settings()
+        translators_config = settings.get('translators', {})
+        provider_config = translators_config.get(settings_provider, {})
+        api_key = provider_config.get('api_key', '').strip()
+
+        if api_key:
+            self.api_key_edit.setText(api_key)
     
     def _update_model_options(self) -> None:
         """Update available models based on selected engine."""
         engine = self.engine_combo.currentText()
         self.model_combo.clear()
-        
+
+        # Define built-in models per engine
+        builtin_models = []
+        placeholder = ""
+
         if engine == "OpenAI":
-            self.model_combo.addItems([
-                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"
-            ])
-            self.api_key_edit.setPlaceholderText("OpenAI API key")
+            builtin_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+            placeholder = "OpenAI API key"
         elif engine == "Claude":
-            self.model_combo.addItems([
-                "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-haiku-20240307", "claude-3-opus-20240229"
-            ])
-            self.api_key_edit.setPlaceholderText("Anthropic API key")
+            builtin_models = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"]
+            placeholder = "Anthropic API key"
+        elif engine == "OpenRouter":
+            builtin_models = [
+                "anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-opus-4-5-20251101",
+                "openai/gpt-4o", "openai/gpt-4o-mini", "google/gemini-pro-1.5",
+                "meta-llama/llama-3.1-405b-instruct"
+            ]
+            placeholder = "OpenRouter API key"
         elif engine == "LM Studio":
-            self.model_combo.addItems([
-                "Local Model (LM Studio)", "Custom Endpoint"
-            ])
-            self.api_key_edit.setPlaceholderText("Optional: API key for custom endpoint")
+            builtin_models = ["Local Model (LM Studio)", "Custom Endpoint"]
+            placeholder = "Optional: API key for custom endpoint"
+
+        self.api_key_edit.setPlaceholderText(placeholder)
+
+        # Get custom models and default model from settings
+        custom_models = []
+        default_model = ""
+
+        if self._config_manager:
+            # Map engine names to settings keys
+            engine_to_settings = {
+                'OpenAI': 'openai',
+                'Claude': 'anthropic',
+                'OpenRouter': 'openrouter',
+                'LM Studio': 'lm_studio'
+            }
+            settings_provider = engine_to_settings.get(engine, engine.lower())
+
+            settings = self._config_manager.get_settings()
+            translators_config = settings.get('translators', {})
+            provider_config = translators_config.get(settings_provider, {})
+
+            custom_models = provider_config.get('custom_models', [])
+            default_model = provider_config.get('default_model', '')
+
+        # Add built-in models
+        self.model_combo.addItems(builtin_models)
+
+        # Add custom models with separator if any
+        if custom_models:
+            self.model_combo.insertSeparator(len(builtin_models))
+            for model in custom_models:
+                self.model_combo.addItem(f"★ {model}")
+
+        # Select the default model
+        if default_model:
+            # First try to find exact match
+            index = self.model_combo.findText(default_model)
+            if index >= 0:
+                self.model_combo.setCurrentIndex(index)
+            else:
+                # Try with star prefix (custom model)
+                index = self.model_combo.findText(f"★ {default_model}")
+                if index >= 0:
+                    self.model_combo.setCurrentIndex(index)
     
     def _toggle_api_key_visibility(self, show: bool) -> None:
         """Toggle API key visibility."""
@@ -501,17 +649,23 @@ class TranslateConfigWidget(QFrame):
         provider_mapping = {
             'openai': 'openai',
             'claude': 'claude',  # Claude UI name maps to claude script provider
+            'openrouter': 'openrouter',  # OpenRouter UI name maps to openrouter script provider
             'lm_studio': 'local'  # LM Studio UI name maps to local script provider
         }
-        
+
         engine_text = self.engine_combo.currentText().lower().replace(' ', '_')
         provider = provider_mapping.get(engine_text, engine_text)
-        
+
+        # Get model name, stripping star prefix from custom models
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+
         return {
             'source_language': self.source_lang_combo.currentData() or 'auto',
             'target_language': self.target_lang_combo.currentData() or 'en',
             'provider': provider,
-            'model': self.model_combo.currentText(),
+            'model': model,
             'api_key': self.api_key_edit.text(),
             'chunk_size': self.chunk_size_spin.value(),
             'context': self.context_edit.toPlainText().strip()
@@ -523,8 +677,13 @@ class TranslateConfigWidget(QFrame):
         
         # Check if API key is required
         provider = config['provider']
-        if provider in ['openai', 'anthropic'] and not config['api_key']:
-            provider_display = 'Claude' if provider == 'anthropic' else provider.upper()
+        if provider in ['openai', 'anthropic', 'claude', 'openrouter'] and not config['api_key']:
+            if provider in ['anthropic', 'claude']:
+                provider_display = 'Claude'
+            elif provider == 'openrouter':
+                provider_display = 'OpenRouter'
+            else:
+                provider_display = provider.upper()
             return ValidationResult(False, f"{provider_display} API key is required")
         
         # Check language selection
@@ -568,7 +727,7 @@ class SyncConfigWidget(QFrame):
 
         # Provider selection
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(["OpenAI", "Claude"])
+        self.provider_combo.addItems(["OpenAI", "Claude", "OpenRouter"])
         layout.addRow("AI Provider:", self.provider_combo)
 
         # Model selection (provider-specific)
@@ -730,10 +889,16 @@ class SyncConfigWidget(QFrame):
             self.api_key_edit.setPlaceholderText("OpenAI API key or set in Settings")
         elif provider == "Claude":
             self.model_combo.addItems([
-                "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
-                "claude-3-haiku-20240307", "claude-3-opus-20240229"
+                "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"
             ])
             self.api_key_edit.setPlaceholderText("Anthropic API key or set in Settings")
+        elif provider == "OpenRouter":
+            self.model_combo.addItems([
+                "anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-opus-4-5-20251101",
+                "openai/gpt-4o", "openai/gpt-4o-mini", "google/gemini-pro-1.5",
+                "meta-llama/llama-3.1-405b-instruct"
+            ])
+            self.api_key_edit.setPlaceholderText("OpenRouter API key or set in Settings")
 
     def _toggle_api_key_visibility(self, show: bool) -> None:
         """Toggle API key visibility."""
@@ -810,13 +975,18 @@ class SyncConfigWidget(QFrame):
                 if os.path.exists(env_file):
                     load_dotenv(env_file)
 
-                if provider in ['openai', 'claude']:
-                    env_var = 'ANTHROPIC_API_KEY' if provider == 'claude' else 'OPENAI_API_KEY'
+                if provider in ['openai', 'claude', 'openrouter']:
+                    if provider == 'claude':
+                        env_var = 'ANTHROPIC_API_KEY'
+                    elif provider == 'openrouter':
+                        env_var = 'OPENROUTER_API_KEY'
+                    else:
+                        env_var = 'OPENAI_API_KEY'
                     has_env_api_key = bool(os.getenv(env_var, '').strip())
 
             # Validate that API key is available from at least one source
-            if provider in ['openai', 'claude'] and not (has_ui_api_key or has_settings_api_key or has_env_api_key):
-                provider_display = 'Claude' if provider == 'claude' else 'OpenAI'
+            if provider in ['openai', 'claude', 'openrouter'] and not (has_ui_api_key or has_settings_api_key or has_env_api_key):
+                provider_display = 'Claude' if provider == 'claude' else ('OpenRouter' if provider == 'openrouter' else 'OpenAI')
                 return ValidationResult(False, f"{provider_display} API key is required for Sync stage. "
                                               f"Please enter it here, set it in Settings (File → Settings → Translators), "
                                               f"or set it in environment variables.")
@@ -890,7 +1060,7 @@ class StageConfigurators(QFrame):
         
         # Translate configuration
         self.translate_group = QCollapsibleGroupBox(self.tr("Translate Configuration"))
-        self.translate_config = TranslateConfigWidget()
+        self.translate_config = TranslateConfigWidget(self._config_manager)
         translate_layout = QVBoxLayout(self.translate_group)
         translate_layout.addWidget(self.translate_config)
         self.translate_group.setContentWidget(self.translate_config)

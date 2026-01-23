@@ -42,6 +42,74 @@ class LanguageDetectionResult:
     files_with_subtitles: int
     errors: List[str]
 
+    def get_tracks_for_language(self, language_code: str) -> List[Tuple[SubtitleTrack, Path]]:
+        """
+        Get all subtitle tracks matching a specific language code across all files.
+
+        Args:
+            language_code: ISO language code to filter by (e.g., 'eng', 'es')
+
+        Returns:
+            List of (SubtitleTrack, file_path) tuples for matching tracks
+        """
+        tracks = []
+        code_lower = language_code.lower()
+        for file_result in self.file_results:
+            for track in file_result.subtitle_tracks:
+                if track.language_code.lower() == code_lower:
+                    tracks.append((track, file_result.file_path))
+        return tracks
+
+    def get_unique_tracks_for_language(self, language_code: str) -> List[SubtitleTrack]:
+        """
+        Get unique subtitle tracks for a language (deduped by track characteristics).
+
+        This is useful when multiple files have the same track structure and we want
+        to present a single selection UI. Returns tracks from the first file that
+        has tracks in this language.
+
+        Args:
+            language_code: ISO language code to filter by
+
+        Returns:
+            List of unique SubtitleTrack objects
+        """
+        code_lower = language_code.lower()
+        for file_result in self.file_results:
+            tracks = [t for t in file_result.subtitle_tracks if t.language_code.lower() == code_lower]
+            if tracks:
+                return tracks
+        return []
+
+    def count_tracks_for_language(self, language_code: str) -> int:
+        """
+        Count total tracks for a language across all files.
+
+        Args:
+            language_code: ISO language code
+
+        Returns:
+            Total count of tracks matching this language
+        """
+        return len(self.get_tracks_for_language(language_code))
+
+    def has_multiple_tracks_for_language(self, language_code: str) -> bool:
+        """
+        Check if any file has multiple tracks for the given language.
+
+        Args:
+            language_code: ISO language code
+
+        Returns:
+            True if at least one file has more than one track for this language
+        """
+        code_lower = language_code.lower()
+        for file_result in self.file_results:
+            tracks = [t for t in file_result.subtitle_tracks if t.language_code.lower() == code_lower]
+            if len(tracks) > 1:
+                return True
+        return False
+
 
 class MKVLanguageDetector:
     """

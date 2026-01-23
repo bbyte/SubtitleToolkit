@@ -46,8 +46,8 @@ class SettingsDialog(QDialog):
     def _init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Settings - SubtitleToolkit")
-        self.setMinimumSize(700, 500)
-        self.resize(800, 600)
+        self.setMinimumSize(1100, 700)
+        self.resize(1200, 800)
         self.setModal(True)
         
         # Main layout for the dialog

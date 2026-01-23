@@ -21,6 +21,7 @@ class TranslationProvider(Enum):
     """Available translation providers."""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    OPENROUTER = "openrouter"
     LM_STUDIO = "lm_studio"
 
 
@@ -64,7 +65,7 @@ class SettingsSchema:
                 "last_detection_time": None,
             },
             "translators": {
-                "default_provider": TranslationProvider.OPENAI.value,
+                "default_provider": TranslationProvider.ANTHROPIC.value,
                 "openai": {
                     "api_key": "",
                     "default_model": "gpt-4o-mini",
@@ -75,7 +76,15 @@ class SettingsSchema:
                 },
                 "anthropic": {
                     "api_key": "",
-                    "default_model": "claude-3-haiku-20240307",
+                    "default_model": "claude-haiku-4-5-20251001",
+                    "custom_models": [],  # User-added custom models
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "openrouter": {
+                    "api_key": "",
+                    "default_model": "anthropic/claude-3.5-sonnet",
                     "custom_models": [],  # User-added custom models
                     "temperature": 0.3,
                     "max_tokens": 4096,
@@ -398,13 +407,24 @@ class SettingsSchema:
     def get_anthropic_models() -> List[str]:
         """Get available Anthropic models."""
         return [
-            "claude-3-5-sonnet-20241022",
-            "claude-3-5-haiku-20241022",
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307",
+            "claude-sonnet-4-5-20250929",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-5-20251101",
         ]
-    
+
+    @staticmethod
+    def get_openrouter_models() -> List[str]:
+        """Get available OpenRouter models."""
+        return [
+            "anthropic/claude-sonnet-4-5-20250929",
+            "anthropic/claude-haiku-4-5-20251001",
+            "anthropic/claude-opus-4-5-20251101",
+            "openai/gpt-4o",
+            "openai/gpt-4o-mini",
+            "google/gemini-pro-1.5",
+            "meta-llama/llama-3.1-405b-instruct",
+        ]
+
     @staticmethod
     def get_interface_languages() -> Dict[str, str]:
         """Get supported interface languages."""

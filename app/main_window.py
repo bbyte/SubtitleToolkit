@@ -1236,18 +1236,19 @@ class MainWindow(QMainWindow):
     def _build_extract_config(self) -> ExtractConfig:
         """Build extraction configuration from UI settings."""
         selected_path = self.project_selector.get_selected_path()
-        
+
         # Get configuration from stage configurators
         extract_settings = self.stage_configurators.get_extract_config()
-        
+
         # Get tool paths from settings
         settings = self.config_manager.get_settings()
         tools_config = settings.get('tools', {})
-        
+
         return ExtractConfig(
             input_directory=selected_path,
             language_code=extract_settings.get('language_code', 'eng'),
             output_directory=extract_settings.get('output_directory'),
+            track_indices=extract_settings.get('track_indices', []),
             recursive=extract_settings.get('recursive', True),
             overwrite_existing=extract_settings.get('overwrite_existing', False),
             ffmpeg_path=tools_config.get('ffmpeg_path') or None,
@@ -1272,8 +1273,14 @@ class MainWindow(QMainWindow):
         provider = translate_settings.get('provider', 'openai')
 
         # Normalize provider name for settings lookup
-        # UI uses 'claude' but settings uses 'anthropic'
-        settings_provider = 'anthropic' if provider == 'claude' else provider
+        # Map script provider names to settings keys
+        provider_to_settings = {
+            'openai': 'openai',
+            'claude': 'anthropic',  # Script uses 'claude', settings uses 'anthropic'
+            'openrouter': 'openrouter',
+            'local': 'lm_studio',  # Script uses 'local', settings uses 'lm_studio'
+        }
+        settings_provider = provider_to_settings.get(provider, provider)
         provider_config = translators_config.get(settings_provider, {})
 
         # Debug: Show what's in the config
@@ -1315,6 +1322,11 @@ class MainWindow(QMainWindow):
                     return env_key
             elif provider == 'openai':
                 env_key = os.getenv('OPENAI_API_KEY', '').strip()
+                if env_key:
+                    self.log_panel.add_message("debug", "Using API key from environment variable")
+                    return env_key
+            elif provider == 'openrouter':
+                env_key = os.getenv('OPENROUTER_API_KEY', '').strip()
                 if env_key:
                     self.log_panel.add_message("debug", "Using API key from environment variable")
                     return env_key
@@ -1420,8 +1432,14 @@ class MainWindow(QMainWindow):
             api_key = sync_settings.get('api_key', '')
 
         # Get provider config from settings
-        # Normalize provider name for settings lookup (UI uses 'claude' but settings uses 'anthropic')
-        settings_provider = 'anthropic' if provider == 'claude' else provider
+        # Map script provider names to settings keys
+        provider_to_settings = {
+            'openai': 'openai',
+            'claude': 'anthropic',  # Script uses 'claude', settings uses 'anthropic'
+            'openrouter': 'openrouter',
+            'local': 'lm_studio',  # Script uses 'local', settings uses 'lm_studio'
+        }
+        settings_provider = provider_to_settings.get(provider, provider)
         provider_config = translators_config.get(settings_provider, {})
 
         # Load API key with fallback logic
@@ -1454,6 +1472,11 @@ class MainWindow(QMainWindow):
                     return env_key
             elif provider == 'openai':
                 env_key = os.getenv('OPENAI_API_KEY', '').strip()
+                if env_key:
+                    self.log_panel.add_message("debug", "Sync using API key from environment")
+                    return env_key
+            elif provider == 'openrouter':
+                env_key = os.getenv('OPENROUTER_API_KEY', '').strip()
                 if env_key:
                     self.log_panel.add_message("debug", "Sync using API key from environment")
                     return env_key

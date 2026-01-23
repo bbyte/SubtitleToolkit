@@ -661,18 +661,37 @@ class ScriptRunner(QObject):
             duration_seconds=duration,
             result_data=summary.get('result_data')
         )
-        
+
         # Extract file statistics from result data if available
+        # Note: Different scripts use different field names for these values
         if result.result_data:
-            result.files_processed = result.result_data.get('files_processed', 0)
-            result.files_successful = result.result_data.get('files_successful', 0) 
-            result.files_failed = result.result_data.get('files_failed', 0)
+            result.files_processed = (result.result_data.get('files_processed', 0) or
+                                      result.result_data.get('total_files', 0))
+            result.files_successful = (result.result_data.get('files_successful', 0) or
+                                       result.result_data.get('successful', 0) or
+                                       result.result_data.get('successful_files', 0))
+            result.files_failed = (result.result_data.get('files_failed', 0) or
+                                   result.result_data.get('failed', 0) or
+                                   result.result_data.get('failed_files', 0))
             result.output_files = result.result_data.get('outputs', [])
-        
+
+        # Check for errors that the script may have reported via JSONL even if exit code was 0
+        # This catches cases like permission denied errors during extraction
+        has_aggregator_errors = self._aggregator and self._aggregator.has_errors()
+        has_file_failures = result.files_failed > 0
+
+        if result.success and (has_aggregator_errors or has_file_failures):
+            # Override success if there were errors reported via JSONL
+            result.success = False
+            self.signals.debug_received.emit(self._current_stage,
+                f"SUCCESS_OVERRIDE: Exit code was 0 but errors detected - aggregator_errors: {has_aggregator_errors}, files_failed: {result.files_failed}")
+
         # Set error message if process failed
         if not result.success:
             if self._aggregator and self._aggregator.errors:
                 result.error_message = '; '.join(self._aggregator.errors)
+            elif has_file_failures:
+                result.error_message = f"{result.files_failed} file(s) failed to process"
             else:
                 if exit_code == 15 and not sigterm_after_success:
                     result.error_message = f"Process terminated with SIGTERM (broken pipe or early termination)"

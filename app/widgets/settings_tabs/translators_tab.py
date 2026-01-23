@@ -57,7 +57,12 @@ class ConnectionTestWorker(QObject):
             if len(self.api_key) < 10 or not self.api_key.startswith('sk-'):
                 return False, "Invalid Anthropic API key format"
             return True, "Connection successful (simulated)"
-            
+
+        elif self.provider == TranslationProvider.OPENROUTER.value:
+            if len(self.api_key) < 10 or not self.api_key.startswith('sk-or-'):
+                return False, "Invalid OpenRouter API key format"
+            return True, "Connection successful (simulated)"
+
         elif self.provider == TranslationProvider.LM_STUDIO.value:
             if not self.base_url:
                 return False, "Base URL is required for LM Studio"
@@ -122,6 +127,7 @@ class ProviderConfigWidget(QWidget):
         """Initialize the UI for this provider."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
+        self.setMinimumWidth(700)
         
         # Provider info header
         header = self._create_header()
@@ -183,22 +189,51 @@ class ProviderConfigWidget(QWidget):
         group = QGroupBox("Configuration")
         form_layout = QFormLayout(group)
         form_layout.setSpacing(10)
+        form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form_layout.setLabelAlignment(Qt.AlignRight)
         
         # API Key
         self._widgets['api_key'] = SecureLineEdit()
         self._widgets['api_key'].setPlaceholderText(self._get_api_key_placeholder())
+        self._widgets['api_key'].setMinimumWidth(350)
         form_layout.addRow("API Key:", self._widgets['api_key'])
         
         # Base URL (for LM Studio)
         if self.provider == TranslationProvider.LM_STUDIO:
             self._widgets['base_url'] = QLineEdit()
             self._widgets['base_url'].setPlaceholderText("http://localhost:1234/v1")
+            self._widgets['base_url'].setMinimumWidth(350)
             form_layout.addRow("Base URL:", self._widgets['base_url'])
         
         # Model selection with management buttons
         model_layout = QHBoxLayout()
         self._widgets['default_model'] = QComboBox()
         self._widgets['default_model'].setEditable(True)
+        self._widgets['default_model'].setMinimumWidth(400)
+        self._widgets['default_model'].setMaxVisibleItems(10)
+        self._widgets['default_model'].setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self._widgets['default_model'].view().setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # Make dropdown arrow more visible
+        self._widgets['default_model'].setStyleSheet("""
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid #ccc;
+            }
+            QComboBox::down-arrow {
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #666;
+            }
+        """)
         self._populate_models()
         model_layout.addWidget(self._widgets['default_model'], stretch=1)
 
@@ -282,13 +317,14 @@ class ProviderConfigWidget(QWidget):
     def _connect_signals(self):
         """Connect widget signals."""
         # Connect all input widgets to settings changed signal
+        # Use lambdas to discard the arguments passed by widget signals
         for widget in self._widgets.values():
             if isinstance(widget, QLineEdit):
-                widget.textChanged.connect(self.settings_changed.emit)
+                widget.textChanged.connect(lambda: self.settings_changed.emit())
             elif isinstance(widget, QComboBox):
-                widget.currentTextChanged.connect(self.settings_changed.emit)
+                widget.currentTextChanged.connect(lambda: self.settings_changed.emit())
             elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                widget.valueChanged.connect(self.settings_changed.emit)
+                widget.valueChanged.connect(lambda: self.settings_changed.emit())
     
     def _populate_models(self, custom_models: list = None):
         """Populate model dropdown with provider-specific models and custom models."""
@@ -301,6 +337,8 @@ class ProviderConfigWidget(QWidget):
             builtin_models = SettingsSchema.get_openai_models()
         elif self.provider == TranslationProvider.ANTHROPIC:
             builtin_models = SettingsSchema.get_anthropic_models()
+        elif self.provider == TranslationProvider.OPENROUTER:
+            builtin_models = SettingsSchema.get_openrouter_models()
         elif self.provider == TranslationProvider.LM_STUDIO:
             builtin_models = ["local-model", "custom-model"]  # Placeholder
 
@@ -456,6 +494,7 @@ class ProviderConfigWidget(QWidget):
         names = {
             TranslationProvider.OPENAI: "OpenAI",
             TranslationProvider.ANTHROPIC: "Anthropic (Claude)",
+            TranslationProvider.OPENROUTER: "OpenRouter",
             TranslationProvider.LM_STUDIO: "LM Studio (Local)"
         }
         return names.get(self.provider, self.provider.value)
@@ -465,6 +504,7 @@ class ProviderConfigWidget(QWidget):
         descriptions = {
             TranslationProvider.OPENAI: "High-quality translation using GPT models. Requires OpenAI API account.",
             TranslationProvider.ANTHROPIC: "Advanced translation using Claude models. Requires Anthropic API account.",
+            TranslationProvider.OPENROUTER: "Access multiple AI models through a single API. Supports Claude, GPT, Gemini, Llama, and more.",
             TranslationProvider.LM_STUDIO: "Local translation using self-hosted models. Free but requires local setup."
         }
         return descriptions.get(self.provider, "Translation provider")
@@ -474,6 +514,7 @@ class ProviderConfigWidget(QWidget):
         placeholders = {
             TranslationProvider.OPENAI: "sk-...",
             TranslationProvider.ANTHROPIC: "sk-ant-...",
+            TranslationProvider.OPENROUTER: "sk-or-v1-...",
             TranslationProvider.LM_STUDIO: "lm-studio"
         }
         return placeholders.get(self.provider, "Enter API key")
@@ -608,6 +649,7 @@ class TranslatorsTab(QWidget):
         providers = [
             (TranslationProvider.OPENAI.value, "OpenAI (GPT)"),
             (TranslationProvider.ANTHROPIC.value, "Anthropic (Claude)"),
+            (TranslationProvider.OPENROUTER.value, "OpenRouter"),
             (TranslationProvider.LM_STUDIO.value, "LM Studio (Local)")
         ]
         
@@ -628,6 +670,7 @@ class TranslatorsTab(QWidget):
         providers = [
             TranslationProvider.OPENAI,
             TranslationProvider.ANTHROPIC,
+            TranslationProvider.OPENROUTER,
             TranslationProvider.LM_STUDIO
         ]
         

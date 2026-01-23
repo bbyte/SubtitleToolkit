@@ -23,6 +23,7 @@ load_dotenv()
 class LLMProvider(Enum):
     OPENAI = "openai"
     CLAUDE = "claude"
+    OPENROUTER = "openrouter"
 
 class Colors:
     HEADER = '\033[95m'
@@ -66,7 +67,9 @@ class SRTNamesSync:
         if self.provider == LLMProvider.OPENAI:
             return "gpt-4o-mini"
         elif self.provider == LLMProvider.CLAUDE:
-            return "claude-3-haiku-20240307"
+            return "claude-haiku-4-5-20251001"
+        elif self.provider == LLMProvider.OPENROUTER:
+            return "anthropic/claude-haiku-4-5-20251001"
     
     def _emit_jsonl(self, event_type: str, msg: str, progress: Optional[int] = None, data: Optional[Dict] = None):
         """Emit a JSONL event to stdout"""
@@ -110,7 +113,16 @@ class SRTNamesSync:
                 if not api_key:
                     raise ValueError("ANTHROPIC_API_KEY environment variable not set")
                 self.claude_client = anthropic.Anthropic(api_key=api_key)
-                
+
+            elif self.provider == LLMProvider.OPENROUTER:
+                api_key = os.getenv('OPENROUTER_API_KEY')
+                if not api_key:
+                    raise ValueError("OPENROUTER_API_KEY environment variable not set")
+                self.openrouter_client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1"
+                )
+
         except Exception as e:
             error_msg = f"{Colors.FAIL}Error initializing LLM client: {e}{Colors.ENDC}"
             self._print_or_emit(error_msg, "error")
@@ -193,7 +205,7 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
                     max_tokens=500
                 )
                 content = response.choices[0].message.content
-            
+
             elif self.provider == LLMProvider.CLAUDE:
                 response = self.claude_client.messages.create(
                     model=self.model,
@@ -202,6 +214,15 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
                     messages=[{"role": "user", "content": prompt}]
                 )
                 content = response.content[0].text
+
+            elif self.provider == LLMProvider.OPENROUTER:
+                response = self.openrouter_client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=500
+                )
+                content = response.choices[0].message.content
             
             # Parse JSON response
             try:
@@ -249,37 +270,49 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
             )
             return {"best_match": None, "confidence": 0.0, "reason": f"Error: {e}"}
     
-    def find_matches(self) -> List[MatchResult]:
-        """Find matches between MKV and SRT files using LLM"""
+    def find_matches(self) -> Tuple[List[MatchResult], Dict[str, int]]:
+        """Find matches between MKV and SRT files using LLM
+
+        Returns:
+            Tuple of (matches, stats) where stats contains success/failure counts
+        """
         self._print_or_emit(
             f"{Colors.HEADER}🤖 Analyzing file matches with {self.provider.value} ({self.model}){Colors.ENDC}",
             "info",
             data={"provider": self.provider.value, "model": self.model}
         )
-        
+
         matches = []
         total_files = len(self.mkv_files)
-        
+        llm_success_count = 0
+        llm_failure_count = 0
+
         # Use tqdm only in non-JSONL mode
         mkv_iterator = self.mkv_files if self.jsonl_mode else tqdm(
-            self.mkv_files, 
-            desc="Processing MKV files", 
+            self.mkv_files,
+            desc="Processing MKV files",
             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
         )
-        
+
         for i, mkv_file in enumerate(mkv_iterator, 1):
             if self.jsonl_mode:
                 progress = int((i / total_files) * 100)
                 self._emit_jsonl(
-                    "progress", 
+                    "progress",
                     f"Processing MKV file {i}/{total_files}: {mkv_file.name}",
                     progress,
                     {"current_file": mkv_file.name}
                 )
-            
+
             prompt = self._create_matching_prompt(mkv_file, self.srt_files)
             result = self._query_llm(prompt)
-            
+
+            # Track LLM query success/failure
+            if "Error:" in result.get("reason", ""):
+                llm_failure_count += 1
+            else:
+                llm_success_count += 1
+
             if result["best_match"] and result["confidence"] > 0.3:
                 # Find the matching SRT file
                 matching_srt = None
@@ -318,8 +351,14 @@ If no good match is found, set "best_match" to null and confidence to 0.0."""
             
             # Small delay to respect API rate limits
             time.sleep(0.1)
-        
-        return matches
+
+        stats = {
+            "total_queries": total_files,
+            "success_count": llm_success_count,
+            "failure_count": llm_failure_count
+        }
+
+        return matches, stats
     
     def display_matches(self, matches: List[MatchResult]):
         """Display the found matches with fancy formatting"""
@@ -503,14 +542,14 @@ Examples:
     
     parser.add_argument(
         "--provider",
-        choices=["openai", "claude"],
+        choices=["openai", "claude", "openrouter"],
         default="openai",
         help="LLM provider to use (default: openai)"
     )
-    
+
     parser.add_argument(
         "--model",
-        help="Specific model to use (default: gpt-4o-mini for OpenAI, claude-3-haiku-20240307 for Claude)"
+        help="Specific model to use (default: gpt-4o-mini for OpenAI, claude-haiku-4-5-20251001 for Claude, anthropic/claude-haiku-4-5-20251001 for OpenRouter)"
     )
     
     parser.add_argument(
@@ -608,15 +647,40 @@ Examples:
         sys.exit(0)
     
     # Find matches
-    matches = app.find_matches()
-    
+    matches, stats = app.find_matches()
+
+    # Check if all LLM queries failed
+    if stats["failure_count"] > 0 and stats["success_count"] == 0:
+        error_msg = f"All LLM queries failed ({stats['failure_count']}/{stats['total_queries']}). Please check your API key and model configuration."
+        app._print_or_emit(
+            f"{Colors.FAIL}Error: {error_msg}{Colors.ENDC}",
+            "error",
+            data=stats
+        )
+        sys.exit(1)
+
+    # Warn if many queries failed
+    if stats["failure_count"] > 0:
+        failure_rate = stats["failure_count"] / stats["total_queries"]
+        if failure_rate > 0.5:  # More than 50% failed
+            app._print_or_emit(
+                f"{Colors.WARNING}Warning: {stats['failure_count']}/{stats['total_queries']} LLM queries failed ({failure_rate:.1%}){Colors.ENDC}",
+                "warning",
+                data=stats
+            )
+
     # Display results
     app.display_matches(matches)
-    
+
     # Rename files
     if matches:
         app.rename_files(matches, dry_run=not args.execute)
-    
+    else:
+        app._print_or_emit(
+            f"\n{Colors.WARNING}No files need to be renamed{Colors.ENDC}",
+            "info"
+        )
+
     app._print_or_emit(
         f"\n{Colors.OKGREEN}✨ Done!{Colors.ENDC}",
         "info"
