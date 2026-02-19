@@ -116,7 +116,7 @@ class TranslateConfig:
     
     # Processing options
     max_workers: int = 3
-    chunk_size: int = 20
+    chunk_size: int = 200
     temperature: float = 0.3
     max_tokens: int = 4096
     timeout: int = 30

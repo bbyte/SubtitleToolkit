@@ -453,6 +453,7 @@ class TranslateConfigWidget(QFrame):
         self._setup_ui()
         self._connect_signals()
         self._load_api_key_from_settings()
+        self._restore_last_used()
     
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -503,8 +504,8 @@ class TranslateConfigWidget(QFrame):
         
         # Advanced options
         self.chunk_size_spin = QSpinBox()
-        self.chunk_size_spin.setRange(5, 50)
-        self.chunk_size_spin.setValue(20)
+        self.chunk_size_spin.setRange(1, 9999)
+        self.chunk_size_spin.setValue(200)
         self.chunk_size_spin.setSuffix(" subtitles")
         layout.addRow("Chunk Size:", self.chunk_size_spin)
         
@@ -522,6 +523,7 @@ class TranslateConfigWidget(QFrame):
         self.target_lang_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
         self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.model_combo.currentTextChanged.connect(self._save_last_used)
         self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
         self.chunk_size_spin.valueChanged.connect(lambda: self.config_changed.emit())
         self.context_edit.textChanged.connect(lambda: self.config_changed.emit())
@@ -532,6 +534,7 @@ class TranslateConfigWidget(QFrame):
         """Handle engine selection change."""
         self._update_model_options()
         self._load_api_key_from_settings()
+        self._save_last_used()
         self.config_changed.emit()
 
     def _load_api_key_from_settings(self) -> None:
@@ -569,35 +572,12 @@ class TranslateConfigWidget(QFrame):
         engine = self.engine_combo.currentText()
         self.model_combo.clear()
 
-        # Define built-in models per engine
-        builtin_models = []
-        placeholder = ""
-
-        if engine == "OpenAI":
-            builtin_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
-            placeholder = "OpenAI API key"
-        elif engine == "Claude":
-            builtin_models = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"]
-            placeholder = "Anthropic API key"
-        elif engine == "OpenRouter":
-            builtin_models = [
-                "anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-opus-4-5-20251101",
-                "openai/gpt-4o", "openai/gpt-4o-mini", "google/gemini-pro-1.5",
-                "meta-llama/llama-3.1-405b-instruct"
-            ]
-            placeholder = "OpenRouter API key"
-        elif engine == "LM Studio":
-            builtin_models = ["Local Model (LM Studio)", "Custom Endpoint"]
-            placeholder = "Optional: API key for custom endpoint"
-
-        self.api_key_edit.setPlaceholderText(placeholder)
-
-        # Get custom models and default model from settings
+        # Load provider settings first so we can use selected_models
         custom_models = []
         default_model = ""
+        selected_models = []
 
         if self._config_manager:
-            # Map engine names to settings keys
             engine_to_settings = {
                 'OpenAI': 'openai',
                 'Claude': 'anthropic',
@@ -605,13 +585,46 @@ class TranslateConfigWidget(QFrame):
                 'LM Studio': 'lm_studio'
             }
             settings_provider = engine_to_settings.get(engine, engine.lower())
-
             settings = self._config_manager.get_settings()
             translators_config = settings.get('translators', {})
             provider_config = translators_config.get(settings_provider, {})
-
             custom_models = provider_config.get('custom_models', [])
             default_model = provider_config.get('default_model', '')
+            selected_models = provider_config.get('selected_models', [])
+
+        # Determine built-in model list; for OpenAI/OpenRouter use user-selected models
+        # when available, otherwise fall back to hardcoded defaults.
+        builtin_models = []
+        placeholder = ""
+
+        if engine == "OpenAI":
+            builtin_models = selected_models if selected_models else [
+                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"
+            ]
+            placeholder = "OpenAI API key"
+        elif engine == "Claude":
+            builtin_models = [
+                "claude-sonnet-4-5-20250929",
+                "claude-haiku-4-5-20251001",
+                "claude-opus-4-5-20251101",
+            ]
+            placeholder = "Anthropic API key"
+        elif engine == "OpenRouter":
+            builtin_models = selected_models if selected_models else [
+                "anthropic/claude-sonnet-4-5-20250929",
+                "anthropic/claude-haiku-4-5-20251001",
+                "anthropic/claude-opus-4-5-20251101",
+                "openai/gpt-4o",
+                "openai/gpt-4o-mini",
+                "google/gemini-pro-1.5",
+                "meta-llama/llama-3.1-405b-instruct",
+            ]
+            placeholder = "OpenRouter API key"
+        elif engine == "LM Studio":
+            builtin_models = ["Local Model (LM Studio)", "Custom Endpoint"]
+            placeholder = "Optional: API key for custom endpoint"
+
+        self.api_key_edit.setPlaceholderText(placeholder)
 
         # Add built-in models
         self.model_combo.addItems(builtin_models)
@@ -624,16 +637,47 @@ class TranslateConfigWidget(QFrame):
 
         # Select the default model
         if default_model:
-            # First try to find exact match
             index = self.model_combo.findText(default_model)
             if index >= 0:
                 self.model_combo.setCurrentIndex(index)
             else:
-                # Try with star prefix (custom model)
                 index = self.model_combo.findText(f"★ {default_model}")
                 if index >= 0:
                     self.model_combo.setCurrentIndex(index)
-    
+
+    def _save_last_used(self, *_):
+        """Persist the current engine + model to settings so they survive restarts."""
+        if not self._config_manager:
+            return
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+        ui_settings = self._config_manager.get_settings('ui')
+        ui_settings['last_translate_engine'] = self.engine_combo.currentText()
+        ui_settings['last_translate_model'] = model
+        self._config_manager.update_settings('ui', ui_settings, save=True)
+
+    def _restore_last_used(self):
+        """Restore the last-used engine and model from settings."""
+        if not self._config_manager:
+            return
+        ui_settings = self._config_manager.get_settings('ui')
+        saved_engine = ui_settings.get('last_translate_engine', '')
+        saved_model = ui_settings.get('last_translate_model', '')
+
+        if saved_engine:
+            idx = self.engine_combo.findText(saved_engine)
+            if idx >= 0 and idx != self.engine_combo.currentIndex():
+                # Triggers _on_engine_changed → _update_model_options
+                self.engine_combo.setCurrentIndex(idx)
+
+        if saved_model:
+            idx = self.model_combo.findText(saved_model)
+            if idx < 0:
+                idx = self.model_combo.findText(f"★ {saved_model}")
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+
     def _toggle_api_key_visibility(self, show: bool) -> None:
         """Toggle API key visibility."""
         if show:
@@ -642,7 +686,7 @@ class TranslateConfigWidget(QFrame):
         else:
             self.api_key_edit.setEchoMode(QLineEdit.Password)
             self.show_key_button.setText(self.tr("Show"))
-    
+
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
         # Map UI display names to script provider names
@@ -712,6 +756,7 @@ class SyncConfigWidget(QFrame):
         self._setup_ui()
         self._connect_signals()
         self._load_api_key_from_settings()
+        self._restore_last_used()
     
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -844,6 +889,7 @@ class SyncConfigWidget(QFrame):
         self.use_translate_settings_checkbox.toggled.connect(self._on_use_translate_toggled)
         self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
         self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.model_combo.currentTextChanged.connect(self._save_last_used)
         self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
         self.show_key_button.toggled.connect(self._toggle_api_key_visibility)
         self.language_filter_edit.textChanged.connect(lambda: self.config_changed.emit())
@@ -874,7 +920,8 @@ class SyncConfigWidget(QFrame):
     def _on_provider_changed(self) -> None:
         """Handle provider selection change."""
         self._update_model_options()
-        self._load_api_key_from_settings()  # Reload API key for new provider
+        self._load_api_key_from_settings()
+        self._save_last_used()
         self.config_changed.emit()
 
     def _update_model_options(self) -> None:
@@ -882,10 +929,20 @@ class SyncConfigWidget(QFrame):
         provider = self.provider_combo.currentText()
         self.model_combo.clear()
 
+        # Load selected_models from settings for OpenAI / OpenRouter
+        selected_models = []
+        if self._config_manager:
+            provider_to_settings = {'OpenAI': 'openai', 'Claude': 'anthropic', 'OpenRouter': 'openrouter'}
+            settings_key = provider_to_settings.get(provider, provider.lower())
+            settings = self._config_manager.get_settings()
+            provider_cfg = settings.get('translators', {}).get(settings_key, {})
+            selected_models = provider_cfg.get('selected_models', [])
+
         if provider == "OpenAI":
-            self.model_combo.addItems([
+            models = selected_models if selected_models else [
                 "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"
-            ])
+            ]
+            self.model_combo.addItems(models)
             self.api_key_edit.setPlaceholderText("OpenAI API key or set in Settings")
         elif provider == "Claude":
             self.model_combo.addItems([
@@ -893,12 +950,50 @@ class SyncConfigWidget(QFrame):
             ])
             self.api_key_edit.setPlaceholderText("Anthropic API key or set in Settings")
         elif provider == "OpenRouter":
-            self.model_combo.addItems([
-                "anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-opus-4-5-20251101",
-                "openai/gpt-4o", "openai/gpt-4o-mini", "google/gemini-pro-1.5",
-                "meta-llama/llama-3.1-405b-instruct"
-            ])
+            models = selected_models if selected_models else [
+                "anthropic/claude-sonnet-4-5-20250929",
+                "anthropic/claude-haiku-4-5-20251001",
+                "anthropic/claude-opus-4-5-20251101",
+                "openai/gpt-4o",
+                "openai/gpt-4o-mini",
+                "google/gemini-pro-1.5",
+                "meta-llama/llama-3.1-405b-instruct",
+            ]
+            self.model_combo.addItems(models)
             self.api_key_edit.setPlaceholderText("OpenRouter API key or set in Settings")
+
+    def _save_last_used(self, *_):
+        """Persist the current provider + model to settings so they survive restarts."""
+        if not self._config_manager:
+            return
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+        ui_settings = self._config_manager.get_settings('ui')
+        ui_settings['last_sync_provider'] = self.provider_combo.currentText()
+        ui_settings['last_sync_model'] = model
+        self._config_manager.update_settings('ui', ui_settings, save=True)
+
+    def _restore_last_used(self):
+        """Restore the last-used provider and model from settings."""
+        if not self._config_manager:
+            return
+        ui_settings = self._config_manager.get_settings('ui')
+        saved_provider = ui_settings.get('last_sync_provider', '')
+        saved_model = ui_settings.get('last_sync_model', '')
+
+        if saved_provider:
+            idx = self.provider_combo.findText(saved_provider)
+            if idx >= 0 and idx != self.provider_combo.currentIndex():
+                # Triggers _on_provider_changed → _update_model_options
+                self.provider_combo.setCurrentIndex(idx)
+
+        if saved_model:
+            idx = self.model_combo.findText(saved_model)
+            if idx < 0:
+                idx = self.model_combo.findText(f"★ {saved_model}")
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
 
     def _toggle_api_key_visibility(self, show: bool) -> None:
         """Toggle API key visibility."""

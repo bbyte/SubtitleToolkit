@@ -70,6 +70,8 @@ class SettingsSchema:
                     "api_key": "",
                     "default_model": "gpt-4o-mini",
                     "custom_models": [],  # User-added custom models
+                    "selected_models": [],  # Models chosen to appear in main window
+                    "fetched_models": [],   # Cache of fetched models [{"id":..,"name":..}]
                     "temperature": 0.3,
                     "max_tokens": 4096,
                     "timeout": 30,
@@ -86,6 +88,8 @@ class SettingsSchema:
                     "api_key": "",
                     "default_model": "anthropic/claude-3.5-sonnet",
                     "custom_models": [],  # User-added custom models
+                    "selected_models": [],  # Models chosen to appear in main window
+                    "fetched_models": [],   # Cache of fetched models [{"id":..,"name":..}]
                     "temperature": 0.3,
                     "max_tokens": 4096,
                     "timeout": 30,
@@ -133,6 +137,11 @@ class SettingsSchema:
                 "zoom_level": 1.0,
                 "zoom_smooth_transitions": True,
                 "interface_language": "system",  # "system", "en", "de", "bg", "es"
+                # Last-used translation selections (persisted across sessions)
+                "last_translate_engine": "",
+                "last_translate_model": "",
+                "last_sync_provider": "",
+                "last_sync_model": "",
             }
         }
     

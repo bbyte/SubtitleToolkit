@@ -123,7 +123,7 @@ def get_mkv_files(directory):
 def get_subtitle_tracks(mkv_file):
     """Get subtitle track information from MKV file using ffprobe."""
     spinning_animation(f"Analyzing {mkv_file.name}", 0.3)
-    
+
     cmd = [
         "ffprobe",
         "-v", "quiet",
@@ -132,7 +132,7 @@ def get_subtitle_tracks(mkv_file):
         "-select_streams", "s",
         str(mkv_file)
     ]
-    
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
@@ -147,6 +147,19 @@ def get_subtitle_tracks(mkv_file):
         emit_jsonl("error", error_msg, data={"file": str(mkv_file)})
         print_colored(f"{Colors.RED}✗ {error_msg}{Colors.ENDC}")
         return []
+
+
+def get_track_codec(tracks, track_index):
+    """Get the codec name for a specific track index."""
+    for track in tracks:
+        if track.get("index") == track_index:
+            return track.get("codec_name", "").lower()
+    return ""
+
+
+def is_ass_ssa_codec(codec_name):
+    """Check if the codec is ASS or SSA format."""
+    return codec_name in ("ass", "ssa")
 
 
 def find_subtitle_track(tracks, language="eng"):
@@ -256,18 +269,38 @@ def parse_time(time_str):
         return 0
 
 
-def extract_subtitle(mkv_file, track_index, output_file, overwrite=False):
+def extract_subtitle(mkv_file, track_index, output_file, overwrite=False, preserve_format=False, codec_name=""):
     """Extract subtitle track from MKV file with progress.
 
-    Automatically converts ASS/SSA subtitles to SRT format.
+    Args:
+        mkv_file: Path to the MKV file
+        track_index: Index of the subtitle track to extract
+        output_file: Path for the output subtitle file
+        overwrite: Whether to overwrite existing files
+        preserve_format: If True, preserve ASS/SSA format instead of converting to SRT
+        codec_name: The codec name of the track (e.g., 'ass', 'ssa', 'subrip')
+
+    By default, converts ASS/SSA subtitles to SRT format.
+    When preserve_format is True and the codec is ASS/SSA, the native format is preserved.
     """
     duration = get_duration(mkv_file)
+
+    # Determine codec option based on preserve_format setting
+    if preserve_format and is_ass_ssa_codec(codec_name):
+        # Copy the subtitle stream as-is (preserves ASS/SSA format)
+        codec_option = ["-c:s", "copy"]
+        info_msg = f"Preserving native {codec_name.upper()} format"
+        emit_jsonl("info", info_msg, data={"track_index": track_index, "codec": codec_name, "preserve_format": True})
+        print_colored(f"  {Colors.CYAN}📋 {info_msg}{Colors.ENDC}")
+    else:
+        # Convert to SRT format
+        codec_option = ["-c:s", "srt"]
 
     cmd = [
         "ffmpeg",
         "-i", str(mkv_file),
         "-map", f"0:{track_index}",
-        "-c:s", "srt",  # Convert to SRT format (handles ASS/SSA conversion)
+    ] + codec_option + [
         str(output_file),
     ]
 
@@ -353,6 +386,8 @@ def main():
                         help="Output directory for extracted subtitles (default: same as input)")
     parser.add_argument("--overwrite", action="store_true",
                         help="Overwrite existing subtitle files (default: skip existing)")
+    parser.add_argument("--preserve-format", action="store_true",
+                        help="Preserve ASS/SSA subtitle format instead of converting to SRT")
     parser.add_argument("--jsonl", action="store_true",
                         help="Output structured JSONL events to stdout")
     
@@ -513,23 +548,36 @@ def main():
 
         # Extract each selected track
         file_successful = True
+        preserve_format = getattr(args, 'preserve_format', False)
+
         for track_idx, track_index in enumerate(tracks_to_extract):
+            # Get codec for this track to determine output format
+            codec_name = get_track_codec(subtitle_tracks, track_index)
+
+            # Determine output file extension based on preserve_format and codec
+            if preserve_format and is_ass_ssa_codec(codec_name):
+                # Preserve native ASS/SSA format
+                output_ext = f".{codec_name}" if codec_name else ".ass"
+            else:
+                # Convert to SRT (default)
+                output_ext = ".srt"
+
             # Create output filename
             if args.output:
                 # Use specified output directory
                 output_dir = Path(args.output)
                 if len(tracks_to_extract) > 1:
                     # Multiple tracks - add track number suffix
-                    output_file = output_dir / f"{mkv_file.stem}.{track_idx + 1}.srt"
+                    output_file = output_dir / f"{mkv_file.stem}.{track_idx + 1}{output_ext}"
                 else:
-                    output_file = output_dir / f"{mkv_file.stem}.srt"
+                    output_file = output_dir / f"{mkv_file.stem}{output_ext}"
             else:
                 # Use same directory as input
                 if len(tracks_to_extract) > 1:
                     # Multiple tracks - add track number suffix
-                    output_file = mkv_file.parent / f"{mkv_file.stem}.{track_idx + 1}.srt"
+                    output_file = mkv_file.parent / f"{mkv_file.stem}.{track_idx + 1}{output_ext}"
                 else:
-                    output_file = mkv_file.with_suffix(".srt")
+                    output_file = mkv_file.with_suffix(output_ext)
 
             # Check if output file already exists and skip if not overwriting
             if output_file.exists() and not args.overwrite:
@@ -540,14 +588,33 @@ def main():
 
             # Extract subtitle
             info_msg = f"Extracting track {track_index} from {mkv_file.name} to {output_file.name}"
-            emit_jsonl("info", info_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file)})
+            emit_jsonl("info", info_msg, data={
+                "file": str(mkv_file),
+                "track_index": track_index,
+                "output_file": str(output_file),
+                "codec": codec_name,
+                "preserve_format": preserve_format
+            })
             print_colored(f"  {Colors.CYAN}📝 Track {track_index} → {output_file.name}{Colors.ENDC}")
 
-            if extract_subtitle(mkv_file, track_index, output_file, overwrite=args.overwrite):
+            if extract_subtitle(mkv_file, track_index, output_file, overwrite=args.overwrite,
+                              preserve_format=preserve_format, codec_name=codec_name):
                 success_msg = f"Successfully extracted track {track_index} from {mkv_file.name}"
-                emit_jsonl("info", success_msg, data={"file": str(mkv_file), "track_index": track_index, "output_file": str(output_file)})
+                emit_jsonl("info", success_msg, data={
+                    "file": str(mkv_file),
+                    "track_index": track_index,
+                    "output_file": str(output_file),
+                    "codec": codec_name,
+                    "preserved_format": preserve_format and is_ass_ssa_codec(codec_name)
+                })
                 print_colored(f"  {Colors.GREEN}✓ Successfully extracted track {track_index}!{Colors.ENDC}")
-                outputs.append({"input_file": str(mkv_file), "output_file": str(output_file), "track_index": track_index})
+                outputs.append({
+                    "input_file": str(mkv_file),
+                    "output_file": str(output_file),
+                    "track_index": track_index,
+                    "codec": codec_name,
+                    "preserved_format": preserve_format and is_ass_ssa_codec(codec_name)
+                })
             else:
                 print_colored(f"  {Colors.RED}✗ Extraction of track {track_index} failed!{Colors.ENDC}")
                 file_successful = False
