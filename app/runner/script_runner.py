@@ -71,34 +71,59 @@ class ScriptRunner(QObject):
     
     def _find_script_directory(self) -> Path:
         """Find the scripts directory relative to the application."""
-        # Try different possible locations
+        is_frozen = getattr(sys, 'frozen', False)
+
+        # When frozen, CLI scripts are compiled as standalone executables (no .py extension).
+        # When in development, look for .py source files.
+        exe_ext = '.exe' if sys.platform == 'win32' else ''
+        if is_frozen:
+            required = [
+                f"extract_mkv_subtitles{exe_ext}",
+                f"srtTranslateWhole{exe_ext}",
+                f"srt_names_sync{exe_ext}",
+            ]
+        else:
+            required = [
+                "extract_mkv_subtitles.py",
+                "srtTranslateWhole.py",
+                "srt_names_sync.py",
+            ]
+
         possible_paths = [
             # Development environment
             Path(__file__).parent.parent.parent / "scripts",
-            # Packaged application
+            # Packaged application — next to the executable
             Path(sys.executable).parent / "scripts",
             Path(QApplication.applicationDirPath()) / "scripts",
-            # Fallback - current directory
-            Path.cwd() / "scripts"
+            # macOS .app bundle: Contents/MacOS/scripts
+            Path(sys.executable).parent.parent / "MacOS" / "scripts",
+            # Fallback
+            Path.cwd() / "scripts",
         ]
-        
+
         for path in possible_paths:
             if path.exists() and path.is_dir():
-                # Check if required scripts exist
-                required_scripts = [
-                    "extract_mkv_subtitles.py",
-                    "srtTranslateWhole.py", 
-                    "srt_names_sync.py"
-                ]
-                
-                if all((path / script).exists() for script in required_scripts):
+                if all((path / name).exists() for name in required):
                     self._logger.info(f"Found scripts directory: {path}")
                     return path
-        
-        # Fallback to assuming scripts are in parent directory
+
         fallback_path = Path(__file__).parent.parent.parent / "scripts"
         self._logger.warning(f"Scripts directory not found, using fallback: {fallback_path}")
         return fallback_path
+
+    def _build_command(self, script_name: str, args: list) -> list:
+        """Return the command list to invoke a CLI script.
+
+        In development mode: [python, scripts/name.py, ...args]
+        In frozen mode:      [scripts/name(.exe), ...args]
+        """
+        if getattr(sys, 'frozen', False):
+            ext = '.exe' if sys.platform == 'win32' else ''
+            exe = self._script_dir / f"{script_name}{ext}"
+            return [str(exe)] + args
+        else:
+            script = self._script_dir / f"{script_name}.py"
+            return [sys.executable, str(script)] + args
     
     @property
     def is_running(self) -> bool:
@@ -137,8 +162,7 @@ class ScriptRunner(QObject):
         self._current_config = config
         
         # Build command
-        script_path = self._script_dir / "extract_mkv_subtitles.py"
-        command = [sys.executable, str(script_path)] + config.to_cli_args()
+        command = self._build_command("extract_mkv_subtitles", config.to_cli_args())
         
         # Start process
         return self._start_process(command, config.get_env_vars() if hasattr(config, 'get_env_vars') else {})
@@ -191,8 +215,7 @@ class ScriptRunner(QObject):
             raise RuntimeError("Multiple file translation not yet implemented")
         
         # Build command
-        script_path = self._script_dir / "srtTranslateWhole.py"
-        command = [sys.executable, str(script_path)] + cli_args
+        command = self._build_command("srtTranslateWhole", cli_args)
         
         # Start process
         return self._start_process(command, config.get_env_vars())
@@ -223,8 +246,7 @@ class ScriptRunner(QObject):
         self._current_config = config
         
         # Build command
-        script_path = self._script_dir / "srt_names_sync.py"
-        command = [sys.executable, str(script_path)] + config.to_cli_args()
+        command = self._build_command("srt_names_sync", config.to_cli_args())
         
         # Start process
         return self._start_process(command, config.get_env_vars())
