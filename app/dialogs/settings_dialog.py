@@ -480,9 +480,18 @@ class SettingsDialog(QDialog):
         return super().eventFilter(source, event)
     
     def closeEvent(self, event):
-        """Handle dialog close event."""
-        self._on_cancel_clicked()
-        if not self.result():  # If dialog wasn't accepted
-            event.ignore()
-        else:
+        """Handle dialog close event (X button only — not triggered by accept/reject)."""
+        # If the dialog was already accepted (OK clicked), just allow the close.
+        # Only prompt about unsaved changes when the user clicks the window's X button.
+        from PySide6.QtWidgets import QDialog
+        if self.result() == QDialog.Accepted:
             event.accept()
+            return
+        self._on_cancel_clicked()
+        # _on_cancel_clicked calls reject() when the user confirms; after that
+        # result() == Rejected (0), so we accept the close event.
+        # If the user chose to stay, result() is still non-Rejected, so ignore.
+        if self.result() == QDialog.Rejected:
+            event.accept()
+        else:
+            event.ignore()

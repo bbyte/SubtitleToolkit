@@ -1264,10 +1264,9 @@ class StageConfigurators(QFrame):
         return [self.extract_group, self.translate_group, self.sync_group]
     
     def update_from_settings(self, settings: Dict[str, Any]) -> None:
-        """Update configurators from settings."""
-        # This method can be used to update the configurators when settings change
-        # For now, it's a placeholder - individual config widgets manage their own state
-        pass
+        """Update configurators from settings (called after settings dialog is accepted)."""
+        self.translate_config._update_model_options()
+        self.sync_config._update_model_options()
     
     def get_extract_widget(self) -> ExtractConfigWidget:
         """Get the extract configuration widget for signal connections."""

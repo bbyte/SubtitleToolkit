@@ -739,6 +739,7 @@ class MainWindow(QMainWindow):
             self._settings_dialog.settings_applied.connect(self._on_settings_applied)
             self._settings_dialog.language_change_requested.connect(self._on_language_change_requested)
         
+        self._settings_dialog._load_current_settings()
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
