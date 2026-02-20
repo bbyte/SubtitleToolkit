@@ -159,6 +159,9 @@ dmypy.json
 #  Uncomment them if you use PyCharm.
 #.idea/
 
+# Build artifacts
+build_temp/
+
 # Subtitle Toolkit specific
 *.srt
 *.mkv
