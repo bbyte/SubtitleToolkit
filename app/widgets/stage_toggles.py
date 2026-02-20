@@ -30,6 +30,7 @@ class StageToggles(QFrame):
         
         self._stages = {
             'extract': False,
+            'fps_sync': False,
             'translate': False,
             'sync': False
         }
@@ -72,7 +73,16 @@ class StageToggles(QFrame):
             "Output: .srt files"
         ))
         checkboxes_layout.addWidget(self.extract_checkbox)
-        
+
+        # FPS Sync checkbox
+        self.fps_sync_checkbox = QCheckBox(self.tr("FPS Convert"))
+        self.fps_sync_checkbox.setToolTip(self.tr(
+            "Convert subtitle timecodes between frame rates\n"
+            "Example: 25 fps PAL → 23.976 fps NTSC\n"
+            "Optionally auto-detects FPS from paired video files"
+        ))
+        checkboxes_layout.addWidget(self.fps_sync_checkbox)
+
         # Translate checkbox
         self.translate_checkbox = QCheckBox(self.tr("Translate Subtitles"))
         self.translate_checkbox.setToolTip(self.tr(
@@ -129,6 +139,7 @@ class StageToggles(QFrame):
     def _connect_signals(self) -> None:
         """Connect internal signals and slots."""
         self.extract_checkbox.toggled.connect(lambda checked: self._on_stage_toggled('extract', checked))
+        self.fps_sync_checkbox.toggled.connect(lambda checked: self._on_stage_toggled('fps_sync', checked))
         self.translate_checkbox.toggled.connect(lambda checked: self._on_stage_toggled('translate', checked))
         self.sync_checkbox.toggled.connect(lambda checked: self._on_stage_toggled('sync', checked))
     
@@ -150,11 +161,12 @@ class StageToggles(QFrame):
         flow_parts = []
         stage_names = {
             'extract': 'Extract',
-            'translate': 'Translate', 
+            'fps_sync': 'FPS Convert',
+            'translate': 'Translate',
             'sync': 'Sync'
         }
-        
-        for stage in ['extract', 'translate', 'sync']:
+
+        for stage in ['extract', 'fps_sync', 'translate', 'sync']:
             if stage in enabled_stages:
                 flow_parts.append(stage_names[stage])
         
@@ -177,10 +189,11 @@ class StageToggles(QFrame):
         # Update checkbox without triggering signal recursion
         checkbox_map = {
             'extract': self.extract_checkbox,
+            'fps_sync': self.fps_sync_checkbox,
             'translate': self.translate_checkbox,
             'sync': self.sync_checkbox
         }
-        
+
         checkbox = checkbox_map[stage]
         checkbox.blockSignals(True)
         checkbox.setChecked(enabled)
@@ -208,16 +221,17 @@ class StageToggles(QFrame):
     
     def get_stage_order(self) -> list:
         """Get enabled stages in their logical processing order."""
-        order = ['extract', 'translate', 'sync']
+        order = ['extract', 'fps_sync', 'translate', 'sync']
         return [stage for stage in order if self._stages[stage]]
     
     def set_stage_availability(self, stage: str, available: bool) -> None:
         """Set whether a stage is available (can be enabled/disabled)."""
         if stage not in self._stages:
             return
-        
+
         checkbox_map = {
             'extract': self.extract_checkbox,
+            'fps_sync': self.fps_sync_checkbox,
             'translate': self.translate_checkbox,
             'sync': self.sync_checkbox
         }
@@ -272,8 +286,9 @@ class StageToggles(QFrame):
                 "Extraction is not needed for SRT files.\n"
                 "SRT files are already extracted subtitle files."
             ))
-            
-            # Translate and sync are available for SRT files
+
+            # FPS sync, translate and sync are available for SRT files
+            self.set_stage_availability('fps_sync', True)
             self.set_stage_availability('translate', True)
             # Note: sync availability also depends on single file mode
             if not self.sync_checkbox.isEnabled():
@@ -281,7 +296,7 @@ class StageToggles(QFrame):
                 pass
             else:
                 self.set_stage_availability('sync', True)
-                
+
         elif file_ext in ['.mkv', '.mp4', '.avi']:
             # Video file selected - all stages available (subject to single file mode)
             self.set_stage_availability('extract', True)

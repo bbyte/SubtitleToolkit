@@ -6,15 +6,16 @@ with JSONL event streaming and process management.
 """
 
 from .script_runner import ScriptRunner
-from .config_models import ExtractConfig, TranslateConfig, SyncConfig
+from .config_models import ExtractConfig, TranslateConfig, SyncConfig, FpsSyncConfig
 from .events import Event, EventType, Stage, ScriptRunnerSignals
 from .jsonl_parser import JSONLParser
 
 __all__ = [
     'ScriptRunner',
-    'ExtractConfig', 
+    'ExtractConfig',
     'TranslateConfig',
     'SyncConfig',
+    'FpsSyncConfig',
     'Event',
     'EventType',
     'Stage',

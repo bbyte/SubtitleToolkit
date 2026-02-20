@@ -53,9 +53,10 @@ class SubtitleToolkitApp(QApplication):
         # Apply modern styling
         self._apply_modern_style()
         
-        # Create main window (pass config manager to avoid double initialization)
-        self.main_window = MainWindow()
-        self.main_window.config_manager = self.config_manager  # Override with app-level instance
+        # Create main window, passing the shared config manager so that the
+        # WindowStateManager and ZoomManager inside it use the same instance
+        # as the settings dialog — preventing stale writes from a second CM.
+        self.main_window = MainWindow(config_manager=self.config_manager)
         
         # Pass translation manager to main window
         if hasattr(self.main_window, 'set_translation_manager'):

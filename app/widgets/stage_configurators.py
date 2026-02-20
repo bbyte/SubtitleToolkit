@@ -483,7 +483,10 @@ class TranslateConfigWidget(QFrame):
         
         # Translation engine
         self.engine_combo = QComboBox()
-        self.engine_combo.addItems(["OpenAI", "Claude", "OpenRouter", "LM Studio"])
+        self.engine_combo.addItems([
+            "OpenAI", "Claude", "OpenRouter", "xAI",
+            "Mistral", "Groq", "DeepSeek", "Kimi", "Gemini", "Z.ai", "LM Studio"
+        ])
         layout.addRow("Translation Engine:", self.engine_combo)
         
         # Model selection (engine-specific)
@@ -538,11 +541,12 @@ class TranslateConfigWidget(QFrame):
         self.config_changed.emit()
 
     def _load_api_key_from_settings(self) -> None:
-        """Load API key from settings if UI field is empty."""
-        # Only load if the field is empty
-        if self.api_key_edit.text().strip():
-            return
+        """Load API key from settings for the current engine.
 
+        Always refreshes from settings so the field reflects what the user
+        configured there. The user can still type a different key in the
+        main window for a one-off task.
+        """
         if not self._config_manager:
             return
 
@@ -554,7 +558,14 @@ class TranslateConfigWidget(QFrame):
             'openai': 'openai',
             'claude': 'anthropic',
             'openrouter': 'openrouter',
-            'lm_studio': 'lm_studio'
+            'xai': 'xai',
+            'mistral': 'mistral',
+            'groq': 'groq',
+            'deepseek': 'deepseek',
+            'kimi': 'moonshot',
+            'gemini': 'gemini',
+            'z.ai': 'zai',
+            'lm_studio': 'lm_studio',
         }
         settings_provider = engine_to_settings.get(engine_text, engine_text)
 
@@ -564,9 +575,8 @@ class TranslateConfigWidget(QFrame):
         provider_config = translators_config.get(settings_provider, {})
         api_key = provider_config.get('api_key', '').strip()
 
-        if api_key:
-            self.api_key_edit.setText(api_key)
-    
+        self.api_key_edit.setText(api_key)
+
     def _update_model_options(self) -> None:
         """Update available models based on selected engine."""
         engine = self.engine_combo.currentText()
@@ -582,7 +592,14 @@ class TranslateConfigWidget(QFrame):
                 'OpenAI': 'openai',
                 'Claude': 'anthropic',
                 'OpenRouter': 'openrouter',
-                'LM Studio': 'lm_studio'
+                'xAI': 'xai',
+                'Mistral': 'mistral',
+                'Groq': 'groq',
+                'DeepSeek': 'deepseek',
+                'Kimi': 'moonshot',
+                'Gemini': 'gemini',
+                'Z.ai': 'zai',
+                'LM Studio': 'lm_studio',
             }
             settings_provider = engine_to_settings.get(engine, engine.lower())
             settings = self._config_manager.get_settings()
@@ -623,6 +640,41 @@ class TranslateConfigWidget(QFrame):
         elif engine == "LM Studio":
             builtin_models = ["Local Model (LM Studio)", "Custom Endpoint"]
             placeholder = "Optional: API key for custom endpoint"
+        elif engine == "xAI":
+            builtin_models = selected_models if selected_models else [
+                "grok-2-latest", "grok-2-mini-latest", "grok-beta"
+            ]
+            placeholder = "xAI API key"
+        elif engine == "Mistral":
+            builtin_models = selected_models if selected_models else [
+                "mistral-large-latest", "mistral-small-latest", "codestral-latest"
+            ]
+            placeholder = "Mistral API key"
+        elif engine == "Groq":
+            builtin_models = selected_models if selected_models else [
+                "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"
+            ]
+            placeholder = "Groq API key"
+        elif engine == "DeepSeek":
+            builtin_models = selected_models if selected_models else [
+                "deepseek-chat", "deepseek-reasoner"
+            ]
+            placeholder = "DeepSeek API key"
+        elif engine == "Kimi":
+            builtin_models = selected_models if selected_models else [
+                "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"
+            ]
+            placeholder = "Kimi (Moonshot) API key"
+        elif engine == "Gemini":
+            builtin_models = selected_models if selected_models else [
+                "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"
+            ]
+            placeholder = "Google Gemini API key (AIza...)"
+        elif engine == "Z.ai":
+            builtin_models = selected_models if selected_models else [
+                "glm-4.7", "glm-5", "glm-4.5-air", "glm-4-flash"
+            ]
+            placeholder = "Z.ai API key"
 
         self.api_key_edit.setPlaceholderText(placeholder)
 
@@ -691,10 +743,17 @@ class TranslateConfigWidget(QFrame):
         """Get the current configuration."""
         # Map UI display names to script provider names
         provider_mapping = {
-            'openai': 'openai',
-            'claude': 'claude',  # Claude UI name maps to claude script provider
-            'openrouter': 'openrouter',  # OpenRouter UI name maps to openrouter script provider
-            'lm_studio': 'local'  # LM Studio UI name maps to local script provider
+            'openai':     'openai',
+            'claude':     'claude',
+            'openrouter': 'openrouter',
+            'xai':        'xai',
+            'mistral':    'mistral',
+            'groq':       'groq',
+            'deepseek':   'deepseek',
+            'kimi':       'moonshot',
+            'gemini':     'gemini',
+            'z.ai':       'zai',
+            'lm_studio':  'local',
         }
 
         engine_text = self.engine_combo.currentText().lower().replace(' ', '_')
@@ -721,13 +780,17 @@ class TranslateConfigWidget(QFrame):
         
         # Check if API key is required
         provider = config['provider']
-        if provider in ['openai', 'anthropic', 'claude', 'openrouter'] and not config['api_key']:
-            if provider in ['anthropic', 'claude']:
-                provider_display = 'Claude'
-            elif provider == 'openrouter':
-                provider_display = 'OpenRouter'
-            else:
-                provider_display = provider.upper()
+        _keyed = {'openai', 'anthropic', 'claude', 'openrouter',
+                  'xai', 'mistral', 'groq', 'deepseek', 'moonshot', 'gemini', 'zai'}
+        if provider in _keyed and not config['api_key']:
+            _display = {
+                'anthropic': 'Claude', 'claude': 'Claude',
+                'openrouter': 'OpenRouter', 'xai': 'xAI',
+                'mistral': 'Mistral', 'groq': 'Groq',
+                'deepseek': 'DeepSeek', 'moonshot': 'Moonshot (Kimi)',
+                'gemini': 'Gemini', 'zai': 'Z.ai',
+            }
+            provider_display = _display.get(provider, provider.upper())
             return ValidationResult(False, f"{provider_display} API key is required")
         
         # Check language selection
@@ -772,7 +835,10 @@ class SyncConfigWidget(QFrame):
 
         # Provider selection
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(["OpenAI", "Claude", "OpenRouter"])
+        self.provider_combo.addItems([
+            "OpenAI", "Claude", "OpenRouter", "xAI",
+            "Mistral", "Groq", "DeepSeek", "Kimi", "Gemini", "Z.ai"
+        ])
         layout.addRow("AI Provider:", self.provider_combo)
 
         # Model selection (provider-specific)
@@ -861,11 +927,12 @@ class SyncConfigWidget(QFrame):
         self._update_model_options()
     
     def _load_api_key_from_settings(self) -> None:
-        """Load API key from settings if UI field is empty."""
-        # Only load if the field is empty
-        if self.api_key_edit.text().strip():
-            return
+        """Load API key from settings for the current provider.
 
+        Always refreshes from settings so the field reflects what the user
+        configured there. The user can still type a different key in the
+        main window for a one-off task.
+        """
         if not self._config_manager:
             return
 
@@ -873,7 +940,18 @@ class SyncConfigWidget(QFrame):
         provider_text = self.provider_combo.currentText().lower()
 
         # Map to settings key (Sync uses 'claude', but settings uses 'anthropic')
-        settings_provider = 'anthropic' if provider_text == 'claude' else provider_text
+        provider_map = {
+            'claude': 'anthropic',
+            'openrouter': 'openrouter',
+            'xai': 'xai',
+            'mistral': 'mistral',
+            'groq': 'groq',
+            'deepseek': 'deepseek',
+            'kimi': 'moonshot',
+            'gemini': 'gemini',
+            'z.ai': 'zai',
+        }
+        settings_provider = provider_map.get(provider_text, provider_text)
 
         # Load from settings
         settings = self._config_manager.get_settings()
@@ -881,8 +959,7 @@ class SyncConfigWidget(QFrame):
         provider_config = translators_config.get(settings_provider, {})
         api_key = provider_config.get('api_key', '').strip()
 
-        if api_key:
-            self.api_key_edit.setText(api_key)
+        self.api_key_edit.setText(api_key)
 
     def _connect_signals(self) -> None:
         """Connect internal signals."""
@@ -929,10 +1006,21 @@ class SyncConfigWidget(QFrame):
         provider = self.provider_combo.currentText()
         self.model_combo.clear()
 
-        # Load selected_models from settings for OpenAI / OpenRouter
+        # Load selected_models from settings for OpenAI / OpenRouter and new providers
         selected_models = []
         if self._config_manager:
-            provider_to_settings = {'OpenAI': 'openai', 'Claude': 'anthropic', 'OpenRouter': 'openrouter'}
+            provider_to_settings = {
+                'OpenAI': 'openai',
+                'Claude': 'anthropic',
+                'OpenRouter': 'openrouter',
+                'xAI': 'xai',
+                'Mistral': 'mistral',
+                'Groq': 'groq',
+                'DeepSeek': 'deepseek',
+                'Kimi': 'moonshot',
+                'Gemini': 'gemini',
+                'Z.ai': 'zai',
+            }
             settings_key = provider_to_settings.get(provider, provider.lower())
             settings = self._config_manager.get_settings()
             provider_cfg = settings.get('translators', {}).get(settings_key, {})
@@ -961,6 +1049,48 @@ class SyncConfigWidget(QFrame):
             ]
             self.model_combo.addItems(models)
             self.api_key_edit.setPlaceholderText("OpenRouter API key or set in Settings")
+        elif provider == "xAI":
+            models = selected_models if selected_models else [
+                "grok-2-latest", "grok-2-mini-latest", "grok-beta"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("xAI API key or set in Settings")
+        elif provider == "Mistral":
+            models = selected_models if selected_models else [
+                "mistral-large-latest", "mistral-small-latest", "codestral-latest"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("Mistral API key or set in Settings")
+        elif provider == "Groq":
+            models = selected_models if selected_models else [
+                "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("Groq API key or set in Settings")
+        elif provider == "DeepSeek":
+            models = selected_models if selected_models else [
+                "deepseek-chat", "deepseek-reasoner"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("DeepSeek API key or set in Settings")
+        elif provider == "Kimi":
+            models = selected_models if selected_models else [
+                "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("Kimi (Moonshot) API key or set in Settings")
+        elif provider == "Gemini":
+            models = selected_models if selected_models else [
+                "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("Google Gemini API key or set in Settings")
+        elif provider == "Z.ai":
+            models = selected_models if selected_models else [
+                "glm-4.7", "glm-5", "glm-4.5-air", "glm-4-flash"
+            ]
+            self.model_combo.addItems(models)
+            self.api_key_edit.setPlaceholderText("Z.ai API key or set in Settings")
 
     def _save_last_used(self, *_):
         """Persist the current provider + model to settings so they survive restarts."""
@@ -1014,10 +1144,17 @@ class SyncConfigWidget(QFrame):
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration."""
         # Map UI display names to script provider names
-        # Note: Sync script expects 'claude' (unlike translate which expects 'anthropic')
         provider_mapping = {
-            'openai': 'openai',
-            'claude': 'claude'
+            'openai':     'openai',
+            'claude':     'claude',
+            'openrouter': 'openrouter',
+            'xai':        'xai',
+            'mistral':    'mistral',
+            'groq':       'groq',
+            'deepseek':   'deepseek',
+            'kimi':       'moonshot',
+            'gemini':     'gemini',
+            'z.ai':       'zai',
         }
 
         provider_text = self.provider_combo.currentText().lower()
@@ -1104,11 +1241,151 @@ class SyncConfigWidget(QFrame):
         return ValidationResult(True)
 
 
+class FpsSyncConfigWidget(QWidget):
+    """Configuration widget for the FPS frame-rate conversion stage."""
+
+    config_changed = Signal()
+
+    # Common FPS presets
+    FPS_PRESETS = [
+        ("23.976 (NTSC Film)", 24000 / 1001),
+        ("24 (Film)", 24.0),
+        ("25 (PAL)", 25.0),
+        ("29.97 (NTSC)", 30000 / 1001),
+        ("30", 30.0),
+        ("50 (PAL HD)", 50.0),
+        ("59.94 (NTSC HD)", 60000 / 1001),
+        ("60", 60.0),
+    ]
+
+    def __init__(self, config_manager=None, parent: QWidget = None):
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._setup_ui()
+        self._connect_signals()
+
+    def _setup_ui(self) -> None:
+        layout = QFormLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        # Source FPS
+        self.source_fps_combo = QComboBox()
+        self.source_fps_combo.setEditable(True)
+        for label, _ in self.FPS_PRESETS:
+            self.source_fps_combo.addItem(label)
+        self.source_fps_combo.setCurrentText("25 (PAL)")
+        self.source_fps_combo.setToolTip(self.tr("Frame rate the subtitles were authored for"))
+        layout.addRow(self.tr("Source FPS:"), self.source_fps_combo)
+
+        # Target FPS mode
+        self.target_mode_combo = QComboBox()
+        self.target_mode_combo.addItems([
+            self.tr("Specify FPS"),
+            self.tr("Auto-detect from video"),
+        ])
+        self.target_mode_combo.setToolTip(
+            self.tr("How to determine the target frame rate")
+        )
+        layout.addRow(self.tr("Target FPS mode:"), self.target_mode_combo)
+
+        # Target FPS (shown when mode = Specify FPS)
+        self.target_fps_combo = QComboBox()
+        self.target_fps_combo.setEditable(True)
+        for label, _ in self.FPS_PRESETS:
+            self.target_fps_combo.addItem(label)
+        self.target_fps_combo.setCurrentText("23.976 (NTSC Film)")
+        self.target_fps_combo.setToolTip(self.tr("Target frame rate for the output subtitles"))
+        layout.addRow(self.tr("Target FPS:"), self.target_fps_combo)
+
+        # Overwrite checkbox
+        self.overwrite_check = QCheckBox(self.tr("Overwrite input file in-place"))
+        self.overwrite_check.setChecked(True)
+        self.overwrite_check.setToolTip(
+            self.tr("When checked, the original SRT is replaced with the converted version.\n"
+                    "Uncheck to write to the output directory instead.")
+        )
+        layout.addRow("", self.overwrite_check)
+
+        # Output directory (optional, shown when not overwriting)
+        self.output_dir_layout = QHBoxLayout()
+        self.output_dir_edit = QLineEdit()
+        self.output_dir_edit.setPlaceholderText(self.tr("Same directory as input (optional)"))
+        self.output_dir_browse = QPushButton(self.tr("Browse…"))
+        self.output_dir_browse.setFixedWidth(80)
+        self.output_dir_layout.addWidget(self.output_dir_edit)
+        self.output_dir_layout.addWidget(self.output_dir_browse)
+        self.output_dir_widget = QWidget()
+        self.output_dir_widget.setLayout(self.output_dir_layout)
+        layout.addRow(self.tr("Output directory:"), self.output_dir_widget)
+
+        # Initially hide output dir (overwrite is default)
+        self.output_dir_widget.setVisible(False)
+
+    def _connect_signals(self) -> None:
+        self.source_fps_combo.currentTextChanged.connect(self.config_changed)
+        self.target_mode_combo.currentIndexChanged.connect(self._on_target_mode_changed)
+        self.target_fps_combo.currentTextChanged.connect(self.config_changed)
+        self.overwrite_check.toggled.connect(self._on_overwrite_toggled)
+        self.output_dir_edit.textChanged.connect(self.config_changed)
+        self.output_dir_browse.clicked.connect(self._browse_output_dir)
+
+    def _on_target_mode_changed(self, index: int) -> None:
+        # index 0 = Specify FPS, index 1 = Auto-detect
+        self.target_fps_combo.setVisible(index == 0)
+        self.config_changed.emit()
+
+    def _on_overwrite_toggled(self, checked: bool) -> None:
+        self.output_dir_widget.setVisible(not checked)
+        self.config_changed.emit()
+
+    def _browse_output_dir(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        directory = QFileDialog.getExistingDirectory(
+            self, self.tr("Select Output Directory"), self.output_dir_edit.text()
+        )
+        if directory:
+            self.output_dir_edit.setText(directory)
+
+    def _parse_fps(self, text: str) -> float:
+        """Extract numeric FPS from a combo-box label or plain number string."""
+        # Try exact match to preset values first
+        for label, value in self.FPS_PRESETS:
+            if text.strip() == label:
+                return value
+        # Otherwise try to parse the leading number
+        import re as _re
+        m = _re.match(r"([\d.]+)", text.strip())
+        if m:
+            return float(m.group(1))
+        return 25.0
+
+    def get_config(self) -> dict:
+        """Return current widget state as a plain dict."""
+        auto_detect = self.target_mode_combo.currentIndex() == 1
+        target_fps = None if auto_detect else self._parse_fps(self.target_fps_combo.currentText())
+        return {
+            "source_fps": self._parse_fps(self.source_fps_combo.currentText()),
+            "target_fps": target_fps,
+            "auto_detect": auto_detect,
+            "overwrite_existing": self.overwrite_check.isChecked(),
+            "output_directory": self.output_dir_edit.text().strip() or None,
+        }
+
+    def validate(self) -> "ValidationResult":
+        cfg = self.get_config()
+        if cfg["source_fps"] <= 0:
+            return ValidationResult(False, "Source FPS must be positive")
+        if not cfg["auto_detect"] and cfg["target_fps"] is not None and cfg["target_fps"] <= 0:
+            return ValidationResult(False, "Target FPS must be positive")
+        return ValidationResult(True)
+
+
 class StageConfigurators(QFrame):
     """
     Container widget for all stage configuration panels.
-    
-    Manages expandable configuration sections for Extract, Translate, and Sync stages.
+
+    Manages expandable configuration sections for Extract, FPS Sync, Translate, and Sync stages.
     """
     
     config_changed = Signal()
@@ -1117,7 +1394,7 @@ class StageConfigurators(QFrame):
         super().__init__(parent)
         
         self._project_directory = ""
-        self._enabled_stages = {'extract': False, 'translate': False, 'sync': False}
+        self._enabled_stages = {'extract': False, 'fps_sync': False, 'translate': False, 'sync': False}
         self._config_manager = config_manager
         
         self._setup_ui()
@@ -1152,7 +1429,15 @@ class StageConfigurators(QFrame):
         extract_layout.addWidget(self.extract_config)
         self.extract_group.setContentWidget(self.extract_config)
         config_layout.addWidget(self.extract_group)
-        
+
+        # FPS Sync configuration
+        self.fps_sync_group = QCollapsibleGroupBox(self.tr("FPS Convert Configuration"))
+        self.fps_sync_config = FpsSyncConfigWidget(self._config_manager)
+        fps_sync_layout = QVBoxLayout(self.fps_sync_group)
+        fps_sync_layout.addWidget(self.fps_sync_config)
+        self.fps_sync_group.setContentWidget(self.fps_sync_config)
+        config_layout.addWidget(self.fps_sync_group)
+
         # Translate configuration
         self.translate_group = QCollapsibleGroupBox(self.tr("Translate Configuration"))
         self.translate_config = TranslateConfigWidget(self._config_manager)
@@ -1160,7 +1445,7 @@ class StageConfigurators(QFrame):
         translate_layout.addWidget(self.translate_config)
         self.translate_group.setContentWidget(self.translate_config)
         config_layout.addWidget(self.translate_group)
-        
+
         # Sync configuration
         self.sync_group = QCollapsibleGroupBox(self.tr("Sync Configuration"))
         self.sync_config = SyncConfigWidget(self._config_manager)
@@ -1168,21 +1453,23 @@ class StageConfigurators(QFrame):
         sync_layout.addWidget(self.sync_config)
         self.sync_group.setContentWidget(self.sync_config)
         config_layout.addWidget(self.sync_group)
-        
+
         # Add the horizontal layout to the main layout
         main_layout.addLayout(config_layout)
-        
+
         # Add stretch to push everything to top
         main_layout.addStretch()
-        
+
         # Initialize all groups as visible but disabled by default
         self.extract_group.setEnabled(False)
+        self.fps_sync_group.setEnabled(False)
         self.translate_group.setEnabled(False)
         self.sync_group.setEnabled(False)
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
         self.extract_config.config_changed.connect(self.config_changed.emit)
+        self.fps_sync_config.config_changed.connect(self.config_changed.emit)
         self.translate_config.config_changed.connect(self.config_changed.emit)
         self.sync_config.config_changed.connect(self.config_changed.emit)
     
@@ -1192,6 +1479,7 @@ class StageConfigurators(QFrame):
 
         # Enable/disable based on stage selection (always visible)
         self.extract_group.setEnabled(stages.get('extract', False))
+        self.fps_sync_group.setEnabled(stages.get('fps_sync', False))
         self.translate_group.setEnabled(stages.get('translate', False))
         self.sync_group.setEnabled(stages.get('sync', False))
 
@@ -1199,20 +1487,10 @@ class StageConfigurators(QFrame):
         self.sync_config.set_translate_enabled(stages.get('translate', False))
 
         # Auto-expand enabled stages and collapse disabled ones
-        if stages.get('extract', False):
-            self.extract_group.setChecked(True)
-        else:
-            self.extract_group.setChecked(False)
-            
-        if stages.get('translate', False):
-            self.translate_group.setChecked(True)
-        else:
-            self.translate_group.setChecked(False)
-            
-        if stages.get('sync', False):
-            self.sync_group.setChecked(True)
-        else:
-            self.sync_group.setChecked(False)
+        self.extract_group.setChecked(stages.get('extract', False))
+        self.fps_sync_group.setChecked(stages.get('fps_sync', False))
+        self.translate_group.setChecked(stages.get('translate', False))
+        self.sync_group.setChecked(stages.get('sync', False))
     
     def set_project_directory(self, directory: str) -> None:
         """Set the project directory for all configurations."""
@@ -1223,6 +1501,7 @@ class StageConfigurators(QFrame):
         """Get all stage configurations."""
         return {
             'extract': self.extract_config.get_config(),
+            'fps_sync': self.fps_sync_config.get_config(),
             'translate': self.translate_config.get_config(),
             'sync': self.sync_config.get_config()
         }
@@ -1235,6 +1514,8 @@ class StageConfigurators(QFrame):
             
             if stage == 'extract':
                 result = self.extract_config.validate()
+            elif stage == 'fps_sync':
+                result = self.fps_sync_config.validate()
             elif stage == 'translate':
                 result = self.translate_config.validate()
             elif stage == 'sync':
@@ -1259,14 +1540,20 @@ class StageConfigurators(QFrame):
         """Get sync stage configuration."""
         return self.sync_config.get_config()
     
+    def get_fps_sync_config(self) -> Dict[str, Any]:
+        """Get FPS sync stage configuration."""
+        return self.fps_sync_config.get_config()
+
     def get_visible_configurators(self) -> list:
         """Get list of visible configurators (all configurators are always visible now)."""
-        return [self.extract_group, self.translate_group, self.sync_group]
+        return [self.extract_group, self.fps_sync_group, self.translate_group, self.sync_group]
     
     def update_from_settings(self, settings: Dict[str, Any]) -> None:
         """Update configurators from settings (called after settings dialog is accepted)."""
         self.translate_config._update_model_options()
+        self.translate_config._load_api_key_from_settings()
         self.sync_config._update_model_options()
+        self.sync_config._load_api_key_from_settings()
     
     def get_extract_widget(self) -> ExtractConfigWidget:
         """Get the extract configuration widget for signal connections."""

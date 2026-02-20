@@ -69,7 +69,20 @@ class ConnectionTestWorker(QObject):
             if not self.base_url.startswith(('http://', 'https://')):
                 return False, "Base URL must start with http:// or https://"
             return True, "Connection successful (simulated)"
-        
+
+        elif self.provider in (
+            TranslationProvider.XAI.value,
+            TranslationProvider.MISTRAL.value,
+            TranslationProvider.GROQ.value,
+            TranslationProvider.DEEPSEEK.value,
+            TranslationProvider.MOONSHOT.value,
+            TranslationProvider.GEMINI.value,
+            TranslationProvider.ZAI.value,
+        ):
+            if len(self.api_key) < 8:
+                return False, "API key appears too short"
+            return True, "Connection successful (simulated)"
+
         return False, "Unknown provider"
 
 
@@ -119,6 +132,34 @@ class ModelFetchWorker(QObject):
                 "https://openrouter.ai/api/v1/models",
                 headers=headers
             )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            models = [
+                (m["id"], m.get("name", m["id"]))
+                for m in data["data"]
+            ]
+            return sorted(models, key=lambda x: x[0])
+
+        elif self.provider in (
+            TranslationProvider.XAI.value,
+            TranslationProvider.MISTRAL.value,
+            TranslationProvider.GROQ.value,
+            TranslationProvider.DEEPSEEK.value,
+            TranslationProvider.MOONSHOT.value,
+            TranslationProvider.GEMINI.value,
+            TranslationProvider.ZAI.value,
+        ):
+            endpoints = {
+                TranslationProvider.XAI.value: "https://api.x.ai/v1/models",
+                TranslationProvider.MISTRAL.value: "https://api.mistral.ai/v1/models",
+                TranslationProvider.GROQ.value: "https://api.groq.com/openai/v1/models",
+                TranslationProvider.DEEPSEEK.value: "https://api.deepseek.com/models",
+                TranslationProvider.MOONSHOT.value: "https://api.moonshot.cn/v1/models",
+                TranslationProvider.GEMINI.value: "https://generativelanguage.googleapis.com/v1beta/openai/models",
+                TranslationProvider.ZAI.value: "https://api.z.ai/api/paas/v4/models",
+            }
+            url = endpoints[self.provider]
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.api_key}"})
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read())
             models = [
@@ -268,8 +309,14 @@ class ProviderConfigWidget(QWidget):
             self._widgets['base_url'].setMinimumWidth(350)
             form_layout.addRow("Base URL:", self._widgets['base_url'])
 
-        # --- Live model fetch + selection (OpenAI and OpenRouter only) ---
-        if self.provider in (TranslationProvider.OPENAI, TranslationProvider.OPENROUTER):
+        # --- Live model fetch + selection (OpenAI, OpenRouter, and new providers) ---
+        if self.provider in (
+            TranslationProvider.OPENAI, TranslationProvider.OPENROUTER,
+            TranslationProvider.XAI, TranslationProvider.MISTRAL,
+            TranslationProvider.GROQ, TranslationProvider.DEEPSEEK,
+            TranslationProvider.MOONSHOT, TranslationProvider.GEMINI,
+            TranslationProvider.ZAI,
+        ):
             # Fetch button row
             fetch_row = QHBoxLayout()
             self._fetch_button = QPushButton("Fetch Available Models")
@@ -450,6 +497,27 @@ class ProviderConfigWidget(QWidget):
                               else SettingsSchema.get_openrouter_models())
         elif self.provider == TranslationProvider.LM_STUDIO:
             builtin_models = ["local-model", "custom-model"]
+        elif self.provider == TranslationProvider.XAI:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_xai_models())
+        elif self.provider == TranslationProvider.MISTRAL:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_mistral_models())
+        elif self.provider == TranslationProvider.GROQ:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_groq_models())
+        elif self.provider == TranslationProvider.DEEPSEEK:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_deepseek_models())
+        elif self.provider == TranslationProvider.MOONSHOT:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_moonshot_models())
+        elif self.provider == TranslationProvider.GEMINI:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_gemini_models())
+        elif self.provider == TranslationProvider.ZAI:
+            builtin_models = (selected_model_ids if selected_model_ids
+                              else SettingsSchema.get_zai_models())
         else:
             builtin_models = []
 
@@ -586,8 +654,24 @@ class ProviderConfigWidget(QWidget):
         if not current_selected:
             if self.provider == TranslationProvider.OPENAI:
                 preset_ids = set(SettingsSchema.get_openai_models())
-            else:
+            elif self.provider == TranslationProvider.OPENROUTER:
                 preset_ids = set(SettingsSchema.get_openrouter_models())
+            elif self.provider == TranslationProvider.XAI:
+                preset_ids = set(SettingsSchema.get_xai_models())
+            elif self.provider == TranslationProvider.MISTRAL:
+                preset_ids = set(SettingsSchema.get_mistral_models())
+            elif self.provider == TranslationProvider.GROQ:
+                preset_ids = set(SettingsSchema.get_groq_models())
+            elif self.provider == TranslationProvider.DEEPSEEK:
+                preset_ids = set(SettingsSchema.get_deepseek_models())
+            elif self.provider == TranslationProvider.MOONSHOT:
+                preset_ids = set(SettingsSchema.get_moonshot_models())
+            elif self.provider == TranslationProvider.GEMINI:
+                preset_ids = set(SettingsSchema.get_gemini_models())
+            elif self.provider == TranslationProvider.ZAI:
+                preset_ids = set(SettingsSchema.get_zai_models())
+            else:
+                preset_ids = set()
             current_selected = [m_id for m_id, _ in models if m_id in preset_ids]
 
         self._populate_model_list(models, current_selected)
@@ -767,7 +851,14 @@ class ProviderConfigWidget(QWidget):
             TranslationProvider.OPENAI: "OpenAI",
             TranslationProvider.ANTHROPIC: "Anthropic (Claude)",
             TranslationProvider.OPENROUTER: "OpenRouter",
-            TranslationProvider.LM_STUDIO: "LM Studio (Local)"
+            TranslationProvider.LM_STUDIO: "LM Studio (Local)",
+            TranslationProvider.XAI: "xAI (Grok)",
+            TranslationProvider.MISTRAL: "Mistral AI",
+            TranslationProvider.GROQ: "Groq",
+            TranslationProvider.DEEPSEEK: "DeepSeek",
+            TranslationProvider.MOONSHOT: "Kimi (Moonshot)",
+            TranslationProvider.GEMINI: "Google Gemini",
+            TranslationProvider.ZAI: "Z.ai (GLM)",
         }
         return names.get(self.provider, self.provider.value)
     
@@ -777,7 +868,14 @@ class ProviderConfigWidget(QWidget):
             TranslationProvider.OPENAI: "High-quality translation using GPT models. Requires OpenAI API account.",
             TranslationProvider.ANTHROPIC: "Advanced translation using Claude models. Requires Anthropic API account.",
             TranslationProvider.OPENROUTER: "Access multiple AI models through a single API. Supports Claude, GPT, Gemini, Llama, and more.",
-            TranslationProvider.LM_STUDIO: "Local translation using self-hosted models. Free but requires local setup."
+            TranslationProvider.LM_STUDIO: "Local translation using self-hosted models. Free but requires local setup.",
+            TranslationProvider.XAI: "Fast translation using Grok models. Requires xAI API account.",
+            TranslationProvider.MISTRAL: "High-quality translation using Mistral models. Requires Mistral AI API account.",
+            TranslationProvider.GROQ: "Ultra-fast inference using Groq hardware. Requires Groq API account.",
+            TranslationProvider.DEEPSEEK: "Cost-effective translation using DeepSeek models. Requires DeepSeek API account.",
+            TranslationProvider.MOONSHOT: "Translation using Kimi/Moonshot models. Requires Moonshot API account.",
+            TranslationProvider.GEMINI: "Translation using Google Gemini models. Requires Google AI API key.",
+            TranslationProvider.ZAI: "Translation using Z.ai GLM models (GLM-4.7, GLM-5). Requires Z.ai API account.",
         }
         return descriptions.get(self.provider, "Translation provider")
     
@@ -787,7 +885,14 @@ class ProviderConfigWidget(QWidget):
             TranslationProvider.OPENAI: "sk-...",
             TranslationProvider.ANTHROPIC: "sk-ant-...",
             TranslationProvider.OPENROUTER: "sk-or-v1-...",
-            TranslationProvider.LM_STUDIO: "lm-studio"
+            TranslationProvider.LM_STUDIO: "lm-studio",
+            TranslationProvider.XAI: "xai-...",
+            TranslationProvider.MISTRAL: "Enter Mistral API key",
+            TranslationProvider.GROQ: "gsk_...",
+            TranslationProvider.DEEPSEEK: "sk-...",
+            TranslationProvider.MOONSHOT: "sk-...",
+            TranslationProvider.GEMINI: "AIza...",
+            TranslationProvider.ZAI: "Z.ai API key",
         }
         return placeholders.get(self.provider, "Enter API key")
     
@@ -941,7 +1046,14 @@ class TranslatorsTab(QWidget):
             (TranslationProvider.OPENAI.value, "OpenAI (GPT)"),
             (TranslationProvider.ANTHROPIC.value, "Anthropic (Claude)"),
             (TranslationProvider.OPENROUTER.value, "OpenRouter"),
-            (TranslationProvider.LM_STUDIO.value, "LM Studio (Local)")
+            (TranslationProvider.XAI.value, "xAI (Grok)"),
+            (TranslationProvider.MISTRAL.value, "Mistral AI"),
+            (TranslationProvider.GROQ.value, "Groq"),
+            (TranslationProvider.DEEPSEEK.value, "DeepSeek"),
+            (TranslationProvider.MOONSHOT.value, "Kimi (Moonshot)"),
+            (TranslationProvider.GEMINI.value, "Google Gemini"),
+            (TranslationProvider.ZAI.value, "Z.ai (GLM)"),
+            (TranslationProvider.LM_STUDIO.value, "LM Studio (Local)"),
         ]
         
         for value, display in providers:
@@ -962,7 +1074,14 @@ class TranslatorsTab(QWidget):
             TranslationProvider.OPENAI,
             TranslationProvider.ANTHROPIC,
             TranslationProvider.OPENROUTER,
-            TranslationProvider.LM_STUDIO
+            TranslationProvider.XAI,
+            TranslationProvider.MISTRAL,
+            TranslationProvider.GROQ,
+            TranslationProvider.DEEPSEEK,
+            TranslationProvider.MOONSHOT,
+            TranslationProvider.GEMINI,
+            TranslationProvider.ZAI,
+            TranslationProvider.LM_STUDIO,
         ]
         
         for provider in providers:

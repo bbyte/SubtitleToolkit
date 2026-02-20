@@ -24,6 +24,7 @@ class EventType(Enum):
 class Stage(Enum):
     """Processing stages in the SubtitleToolkit pipeline."""
     EXTRACT = "extract"
+    FPS_SYNC = "fps_sync"
     TRANSLATE = "translate"
     SYNC = "sync"
 

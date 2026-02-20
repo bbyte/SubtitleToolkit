@@ -23,6 +23,13 @@ class TranslationProvider(Enum):
     ANTHROPIC = "anthropic"
     OPENROUTER = "openrouter"
     LM_STUDIO = "lm_studio"
+    XAI = "xai"
+    MISTRAL = "mistral"
+    GROQ = "groq"
+    DEEPSEEK = "deepseek"
+    MOONSHOT = "moonshot"
+    GEMINI = "gemini"
+    ZAI = "zai"
 
 
 @dataclass
@@ -99,6 +106,76 @@ class SettingsSchema:
                     "api_key": "lm-studio",
                     "default_model": "local-model",
                     "custom_models": [],  # User-added custom models
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "xai": {
+                    "api_key": "",
+                    "default_model": "grok-2-latest",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "mistral": {
+                    "api_key": "",
+                    "default_model": "mistral-large-latest",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "groq": {
+                    "api_key": "",
+                    "default_model": "llama-3.3-70b-versatile",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "deepseek": {
+                    "api_key": "",
+                    "default_model": "deepseek-chat",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "moonshot": {
+                    "api_key": "",
+                    "default_model": "moonshot-v1-128k",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "gemini": {
+                    "api_key": "",
+                    "default_model": "gemini-2.0-flash",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
+                    "temperature": 0.3,
+                    "max_tokens": 4096,
+                    "timeout": 30,
+                },
+                "zai": {
+                    "api_key": "",
+                    "default_model": "glm-4.7",
+                    "custom_models": [],
+                    "selected_models": [],
+                    "fetched_models": [],
                     "temperature": 0.3,
                     "max_tokens": 4096,
                     "timeout": 30,
@@ -203,7 +280,7 @@ class SettingsSchema:
                 result.errors.append(f"Invalid default_provider: {translators['default_provider']}")
         
         # Validate provider sections
-        for provider in ["openai", "anthropic", "lm_studio"]:
+        for provider in ["openai", "anthropic", "lm_studio", "xai", "mistral", "groq", "deepseek", "moonshot", "gemini", "zai"]:
             if provider in translators:
                 SettingsSchema._validate_provider_config(
                     translators[provider], provider, result
@@ -433,6 +510,34 @@ class SettingsSchema:
             "google/gemini-pro-1.5",
             "meta-llama/llama-3.1-405b-instruct",
         ]
+
+    @staticmethod
+    def get_xai_models() -> List[str]:
+        return ["grok-2-latest", "grok-2-mini-latest", "grok-beta"]
+
+    @staticmethod
+    def get_mistral_models() -> List[str]:
+        return ["mistral-large-latest", "mistral-small-latest", "codestral-latest", "open-mistral-nemo"]
+
+    @staticmethod
+    def get_groq_models() -> List[str]:
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+
+    @staticmethod
+    def get_deepseek_models() -> List[str]:
+        return ["deepseek-chat", "deepseek-reasoner"]
+
+    @staticmethod
+    def get_moonshot_models() -> List[str]:
+        return ["moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"]
+
+    @staticmethod
+    def get_gemini_models() -> List[str]:
+        return ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"]
+
+    @staticmethod
+    def get_zai_models() -> List[str]:
+        return ["glm-4.7", "glm-5", "glm-4.5-air", "glm-4-flash"]
 
     @staticmethod
     def get_interface_languages() -> Dict[str, str]:

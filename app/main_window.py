@@ -26,7 +26,7 @@ from app.dialogs.progress_dialog import ProgressDialog
 from app.dialogs.sync_confirmation_dialog import SyncConfirmationDialog
 from app.dialogs.video_preview_dialog import VideoPreviewDialog
 from app.config.config_manager import ConfigManager
-from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, Stage, EventType
+from app.runner import ScriptRunner, ExtractConfig, TranslateConfig, SyncConfig, FpsSyncConfig, Stage, EventType
 from app.zoom_manager import ZoomManager
 from app.window_state_manager import WindowStateManager
 
@@ -57,11 +57,12 @@ class MainWindow(QMainWindow):
     cancel_requested = Signal()
     open_output_requested = Signal()
     
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, parent: QWidget = None, config_manager: ConfigManager = None):
         super().__init__(parent)
-        
-        # Configuration manager
-        self.config_manager = ConfigManager(self)
+
+        # Configuration manager — use the provided one (from the app) to ensure a
+        # single shared instance. If none is provided fall back to creating one.
+        self.config_manager = config_manager if config_manager is not None else ConfigManager(self)
         
         # Zoom manager for browser-style zoom functionality
         self.zoom_manager = ZoomManager(self.config_manager, self)
@@ -1065,6 +1066,8 @@ class MainWindow(QMainWindow):
         # Start with the first enabled stage
         if stages.get('extract', False):
             self._run_extract_stage()
+        elif stages.get('fps_sync', False):
+            self._run_fps_sync_stage()
         elif stages.get('translate', False):
             self._run_translate_stage()
         elif stages.get('sync', False):
@@ -1084,6 +1087,19 @@ class MainWindow(QMainWindow):
             # Re-raise so caller knows the stage failed
             raise RuntimeError(error_msg) from e
     
+    def _run_fps_sync_stage(self) -> None:
+        """Run the FPS frame-rate conversion stage."""
+        try:
+            config = self._build_fps_sync_config()
+            self.script_runner.run_fps_sync(config)
+        except Exception as e:
+            error_msg = f"Failed to start FPS conversion: {str(e)}"
+            self.log_panel.add_message("error", error_msg)
+            if self._progress_dialog:
+                self._progress_dialog.stop_processing(success=False, message="FPS sync stage failed to start")
+            self._set_running_state(False)
+            raise RuntimeError(error_msg) from e
+
     def _run_translate_stage(self) -> None:
         """Run the translation stage."""
         try:
@@ -1256,6 +1272,39 @@ class MainWindow(QMainWindow):
             ffprobe_path=tools_config.get('ffprobe_path') or None,
         )
     
+    def _build_fps_sync_config(self) -> FpsSyncConfig:
+        """Build FPS sync configuration from UI settings."""
+        selected_path = self.project_selector.get_selected_path()
+        fps_settings = self.stage_configurators.get_fps_sync_config()
+
+        settings = self.config_manager.get_settings()
+        tools_config = settings.get('tools', {})
+
+        from pathlib import Path
+        selected_path_obj = Path(selected_path)
+
+        if selected_path_obj.is_file():
+            if selected_path_obj.suffix.lower() == '.srt':
+                input_files = [selected_path]
+                input_directory = None
+            else:
+                input_files = []
+                input_directory = str(selected_path_obj.parent)
+        else:
+            input_files = []
+            input_directory = selected_path
+
+        return FpsSyncConfig(
+            input_files=input_files,
+            input_directory=input_directory,
+            source_fps=fps_settings.get('source_fps', 25.0),
+            target_fps=fps_settings.get('target_fps'),
+            auto_detect=fps_settings.get('auto_detect', False),
+            output_directory=fps_settings.get('output_directory'),
+            overwrite_existing=fps_settings.get('overwrite_existing', True),
+            ffprobe_path=tools_config.get('ffprobe_path') or None,
+        )
+
     def _build_translate_config(self) -> TranslateConfig:
         """Build translation configuration from UI settings."""
         selected_path = self.project_selector.get_selected_path()
@@ -1607,6 +1656,19 @@ class MainWindow(QMainWindow):
     
     def _on_result_received(self, stage: Stage, data: dict) -> None:
         """Handle result data from process."""
+        # Determine validation status for the results panel
+        vr = data.get('validation')
+        if vr is not None:
+            if vr.get('valid') and not vr.get('warnings'):
+                val_status = "success"
+            elif vr.get('valid'):
+                val_status = "warning"
+            else:
+                val_status = "error"
+        else:
+            val_status = "success"
+            vr = None
+
         # Extract useful information from result data
         if 'outputs' in data:
             for output_file in data['outputs']:
@@ -1614,18 +1676,35 @@ class MainWindow(QMainWindow):
                     file_path = output_file.get('output_file', str(output_file))
                 else:
                     file_path = str(output_file)
+
+                if vr is not None:
+                    stats = vr.get('stats', {})
+                    n = vr.get('subtitle_count', 0)
+                    nerr = len(vr.get('errors', []))
+                    nwarn = len(vr.get('warnings', []))
+                    dur = stats.get('duration_seconds', 0)
+                    if val_status == "success":
+                        val_msg = f"{n} subtitles · {dur:.0f}s · OK"
+                    elif val_status == "warning":
+                        val_msg = f"{n} subtitles · {nwarn} warning(s)"
+                    else:
+                        val_msg = f"{nerr} validation error(s)"
+                    result_msg = f"{stage.value.capitalize()} result  [{val_msg}]"
+                else:
+                    result_msg = f"{stage.value.capitalize()} result"
+
                 self.results_panel.add_result(
                     file_path=file_path,
                     result_type=stage.value,
-                    status="success",
-                    message=f"{stage.value.capitalize()} result"
+                    status=val_status,
+                    message=result_msg
                 )
-        
+
         # Log summary information
         if 'files_processed' in data:
             files_processed = data['files_processed']
             files_successful = data.get('files_successful', 0)
-            self.log_panel.add_message("info", 
+            self.log_panel.add_message("info",
                 f"Processed {files_processed} files, {files_successful} successful")
     
     def _check_next_stage(self, completed_stage: Stage, result=None) -> None:
@@ -1633,23 +1712,45 @@ class MainWindow(QMainWindow):
         stages = self.stage_toggles.get_enabled_stages()
 
         try:
-            # Determine next stage to run
-            if completed_stage == Stage.EXTRACT and stages.get('translate', False):
-                # Check if extraction produced any output files
-                if result and hasattr(result, 'output_files') and result.output_files:
-                    self._run_translate_stage()
-                else:
-                    self.log_panel.add_message("warning", "Skipping translation stage - no subtitle files were extracted")
-                    # Check if sync stage should run
-                    if stages.get('sync', False):
-                        self._run_sync_stage()
+            # Determine next stage to run based on pipeline order:
+            # EXTRACT → FPS_SYNC → TRANSLATE → SYNC
+            if completed_stage == Stage.EXTRACT:
+                if stages.get('fps_sync', False):
+                    self._run_fps_sync_stage()
+                elif stages.get('translate', False):
+                    if result and hasattr(result, 'output_files') and result.output_files:
+                        self._run_translate_stage()
                     else:
-                        self.log_panel.add_message("info", "Processing pipeline completed")
-                        if self._progress_dialog:
-                            self._progress_dialog.stop_processing(success=True, message="Pipeline completed with warnings")
-                        self._set_running_state(False)
+                        self.log_panel.add_message("warning", "Skipping translation stage - no subtitle files were extracted")
+                        if stages.get('sync', False):
+                            self._run_sync_stage()
+                        else:
+                            self.log_panel.add_message("info", "Processing pipeline completed")
+                            if self._progress_dialog:
+                                self._progress_dialog.stop_processing(success=True, message="Pipeline completed with warnings")
+                            self._set_running_state(False)
+                elif stages.get('sync', False):
+                    self._run_sync_stage()
+                else:
+                    self.log_panel.add_message("info", "Processing pipeline completed")
+                    if self._progress_dialog:
+                        self._progress_dialog.stop_processing(success=True, message="Pipeline completed successfully")
+                    self._set_running_state(False)
+
+            elif completed_stage == Stage.FPS_SYNC:
+                if stages.get('translate', False):
+                    self._run_translate_stage()
+                elif stages.get('sync', False):
+                    self._run_sync_stage()
+                else:
+                    self.log_panel.add_message("info", "Processing pipeline completed")
+                    if self._progress_dialog:
+                        self._progress_dialog.stop_processing(success=True, message="Pipeline completed successfully")
+                    self._set_running_state(False)
+
             elif completed_stage == Stage.TRANSLATE and stages.get('sync', False):
                 self._run_sync_stage()
+
             else:
                 # Pipeline complete
                 self.log_panel.add_message("info", "Processing pipeline completed")

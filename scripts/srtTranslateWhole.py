@@ -22,6 +22,13 @@ openai_client = None
 anthropic_client = None
 lmstudio_client = None
 openrouter_client = None
+xai_client = None
+mistral_client = None
+groq_client = None
+deepseek_client = None
+moonshot_client = None
+gemini_client = None
+zai_client = None
 
 def get_openai_client(api_key=None):
     """Get OpenAI client, initializing if needed."""
@@ -66,6 +73,79 @@ def get_openrouter_client(api_key=None):
         )
     return openrouter_client
 
+def get_xai_client(api_key=None):
+    """Get xAI (Grok) client, initializing if needed."""
+    global xai_client
+    if xai_client is None:
+        api_key = api_key or os.getenv("XAI_API_KEY")
+        if not api_key:
+            raise ValueError("xAI API key is required")
+        xai_client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+    return xai_client
+
+def get_mistral_client(api_key=None):
+    """Get Mistral client, initializing if needed."""
+    global mistral_client
+    if mistral_client is None:
+        api_key = api_key or os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            raise ValueError("Mistral API key is required")
+        mistral_client = OpenAI(api_key=api_key, base_url="https://api.mistral.ai/v1")
+    return mistral_client
+
+def get_groq_client(api_key=None):
+    """Get Groq client, initializing if needed."""
+    global groq_client
+    if groq_client is None:
+        api_key = api_key or os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("Groq API key is required")
+        groq_client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+    return groq_client
+
+def get_deepseek_client(api_key=None):
+    """Get DeepSeek client, initializing if needed."""
+    global deepseek_client
+    if deepseek_client is None:
+        api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise ValueError("DeepSeek API key is required")
+        deepseek_client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    return deepseek_client
+
+def get_moonshot_client(api_key=None):
+    """Get Moonshot (Kimi) client, initializing if needed."""
+    global moonshot_client
+    if moonshot_client is None:
+        api_key = api_key or os.getenv("MOONSHOT_API_KEY")
+        if not api_key:
+            raise ValueError("Moonshot API key is required")
+        moonshot_client = OpenAI(api_key=api_key, base_url="https://api.moonshot.cn/v1")
+    return moonshot_client
+
+def get_gemini_client(api_key=None):
+    """Get Google Gemini client (OpenAI-compatible endpoint), initializing if needed."""
+    global gemini_client
+    if gemini_client is None:
+        api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("Gemini API key is required")
+        gemini_client = OpenAI(
+            api_key=api_key,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+    return gemini_client
+
+def get_zai_client(api_key=None):
+    """Get Z.ai (GLM) client (OpenAI-compatible endpoint), initializing if needed."""
+    global zai_client
+    if zai_client is None:
+        api_key = api_key or os.getenv("ZAI_API_KEY")
+        if not api_key:
+            raise ValueError("Z.ai API key is required")
+        zai_client = OpenAI(api_key=api_key, base_url="https://api.z.ai/api/paas/v4/")
+    return zai_client
+
 # Available models
 OPENAI_MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-4-turbo-preview", "gpt-3.5-turbo"]
 CLAUDE_MODELS = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"]
@@ -83,6 +163,368 @@ LMSTUDIO_MODELS = ["local"]
 
 # Maximum retries for invalid chunks
 MAX_RETRIES = 3
+
+# ---------------------------------------------------------------------------
+# Subtitle output validation
+# ---------------------------------------------------------------------------
+
+try:
+    import pysrt as _pysrt
+    _PYSRT_AVAILABLE = True
+except ImportError:
+    _PYSRT_AVAILABLE = False
+
+_TIMECODE_PATTERN = re.compile(
+    r'(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})'
+)
+
+def _tc_ms(h, m, s, ms):
+    return int(h) * 3600_000 + int(m) * 60_000 + int(s) * 1_000 + int(ms)
+
+def _parse_srt_builtin(content):
+    """Minimal pure-Python SRT parser. Returns list of (index, start_ms, end_ms, text)."""
+    subs = []
+    for block in re.split(r'\n[ \t]*\n', content.strip()):
+        lines = [l.rstrip() for l in block.strip().splitlines()]
+        if not lines:
+            continue
+        tc_idx = next((i for i, l in enumerate(lines) if _TIMECODE_PATTERN.search(l)), None)
+        if tc_idx is None:
+            continue
+        m = _TIMECODE_PATTERN.search(lines[tc_idx])
+        start = _tc_ms(*m.group(1, 2, 3, 4))
+        end   = _tc_ms(*m.group(5, 6, 7, 8))
+        idx = 0
+        if tc_idx > 0 and lines[tc_idx - 1].strip().isdigit():
+            idx = int(lines[tc_idx - 1].strip())
+        text = '\n'.join(lines[tc_idx + 1:]).strip()
+        subs.append((idx, start, end, text))
+    return subs
+
+
+def validate_srt_file(filepath):
+    """
+    Validate a translated SRT file for format, timing, and content quality.
+
+    Checks performed:
+    - File exists and is non-empty
+    - UTF-8 encoding (warns on BOM or non-UTF-8)
+    - Parseable SRT structure (uses pysrt when available, built-in fallback)
+    - At least one subtitle entry
+    - Each subtitle: start time < end time
+    - Subtitle ordering: no backward time jumps
+    - Subtitle overlap detection (> 100 ms overlap flagged)
+    - Empty subtitle text
+    - Broken encoding replacement characters (U+FFFD)
+    - Excessively long lines (> 84 characters)
+
+    Returns dict:
+        valid         bool   — False if any error was found
+        subtitle_count int
+        errors        list   — blocking issues
+        warnings      list   — non-blocking quality concerns
+        stats         dict   — numeric summary
+        parser        str    — 'pysrt' or 'built-in'
+    """
+    result = {
+        "valid": True,
+        "subtitle_count": 0,
+        "errors": [],
+        "warnings": [],
+        "stats": {},
+        "parser": "pysrt" if _PYSRT_AVAILABLE else "built-in",
+    }
+
+    # 1. File existence / size
+    if not os.path.isfile(filepath):
+        result["valid"] = False
+        result["errors"].append(f"Output file not found: {filepath}")
+        return result
+
+    file_size = os.path.getsize(filepath)
+    if file_size == 0:
+        result["valid"] = False
+        result["errors"].append("Output file is empty")
+        return result
+
+    # 2. Encoding check
+    try:
+        with open(filepath, 'rb') as fh:
+            raw = fh.read()
+        content = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        try:
+            content = raw.decode('latin-1')
+            result["warnings"].append(
+                "Output file is not UTF-8 encoded — some players may display characters incorrectly"
+            )
+        except Exception as exc:
+            result["valid"] = False
+            result["errors"].append(f"Cannot decode output file: {exc}")
+            return result
+
+    if content.startswith('\ufeff'):
+        content = content[1:]
+        result["warnings"].append(
+            "Output file has a UTF-8 BOM — some subtitle players may show a leading character"
+        )
+
+    # 3. Parse
+    subs = []  # list of (index, start_ms, end_ms, text)
+    if _PYSRT_AVAILABLE:
+        try:
+            pysrt_file = _pysrt.open(filepath, error_handling=_pysrt.ERROR_LOG)
+            for sub in pysrt_file:
+                subs.append((sub.index, sub.start.ordinal, sub.end.ordinal, sub.text))
+        except Exception as exc:
+            result["valid"] = False
+            result["errors"].append(f"SRT parse error: {exc}")
+            return result
+    else:
+        try:
+            subs = _parse_srt_builtin(content)
+        except Exception as exc:
+            result["valid"] = False
+            result["errors"].append(f"SRT parse error: {exc}")
+            return result
+
+    if not subs:
+        result["valid"] = False
+        result["errors"].append("No subtitle entries found in output file")
+        return result
+
+    result["subtitle_count"] = len(subs)
+
+    # 4. Per-subtitle checks
+    timing_errors      = []
+    ordering_errors    = []
+    overlap_warnings   = []
+    empty_subs         = []
+    encoding_issues    = []
+    long_line_subs     = []
+    MAX_REPORT = 5
+
+    for i, (idx, start_ms, end_ms, text) in enumerate(subs):
+        label = f"#{idx}"
+
+        # 4a. Duration validity (start must be strictly before end)
+        if start_ms >= end_ms:
+            dur = end_ms - start_ms
+            timing_errors.append(f"{label}: start >= end (duration {dur:+d} ms)")
+
+        if i > 0:
+            prev_idx, prev_start, prev_end, _ = subs[i - 1]
+            prev_label = f"#{prev_idx}"
+
+            # 4b. Ordering: no backward jumps
+            if start_ms < prev_start:
+                ordering_errors.append(
+                    f"{label} starts before {prev_label} ({start_ms} ms < {prev_start} ms)"
+                )
+            # 4c. Overlap
+            elif start_ms < prev_end:
+                overlap_ms = prev_end - start_ms
+                if overlap_ms > 100:
+                    overlap_warnings.append(
+                        f"{label} overlaps {prev_label} by {overlap_ms} ms"
+                    )
+
+        # 4d. Empty text
+        clean_text = re.sub(r'\{[^}]*\}', '', text).strip()  # strip ASS tags
+        if not clean_text:
+            empty_subs.append(label)
+
+        # 4e. Replacement character (broken encoding)
+        if '\ufffd' in text:
+            encoding_issues.append(label)
+
+        # 4f. Overly long lines
+        for line in text.split('\n'):
+            visible = re.sub(r'\{[^}]*\}', '', line).strip()
+            if len(visible) > 84:
+                long_line_subs.append(f"{label} ({len(visible)} chars)")
+                break
+
+    def _add_issues(bucket, label, result_list, max_r=MAX_REPORT):
+        if not bucket:
+            return
+        shown = bucket[:max_r]
+        result_list.extend(shown)
+        if len(bucket) > max_r:
+            result_list.append(f"  … and {len(bucket) - max_r} more")
+
+    _add_issues([f"Timing error — {e}" for e in timing_errors],    "timing",    result["errors"])
+    _add_issues([f"Order error — {e}" for e in ordering_errors],   "ordering",  result["errors"])
+    _add_issues([f"Overlap — {e}" for e in overlap_warnings],      "overlap",   result["warnings"])
+
+    if empty_subs:
+        result["warnings"].append(
+            f"{len(empty_subs)} subtitle(s) with empty text: "
+            + ", ".join(empty_subs[:MAX_REPORT])
+            + (" …" if len(empty_subs) > MAX_REPORT else "")
+        )
+
+    if encoding_issues:
+        result["warnings"].append(
+            f"{len(encoding_issues)} subtitle(s) contain encoding replacement characters (U+FFFD): "
+            + ", ".join(encoding_issues[:MAX_REPORT])
+            + (" …" if len(encoding_issues) > MAX_REPORT else "")
+        )
+
+    if long_line_subs:
+        result["warnings"].append(
+            f"{len(long_line_subs)} subtitle(s) have lines longer than 84 characters: "
+            + ", ".join(long_line_subs[:MAX_REPORT])
+            + (" …" if len(long_line_subs) > MAX_REPORT else "")
+        )
+
+    # 5. Stats
+    total_duration_ms = subs[-1][2] if subs else 0
+    result["stats"] = {
+        "subtitle_count":   len(subs),
+        "timing_errors":    len(timing_errors),
+        "ordering_errors":  len(ordering_errors),
+        "overlaps":         len(overlap_warnings),
+        "empty_subtitles":  len(empty_subs),
+        "encoding_issues":  len(encoding_issues),
+        "long_lines":       len(long_line_subs),
+        "duration_seconds": round(total_duration_ms / 1000, 1),
+        "file_size_kb":     round(file_size / 1024, 1),
+        "parser":           result["parser"],
+    }
+
+    if result["errors"]:
+        result["valid"] = False
+
+    return result
+
+
+def repair_srt_timing(filepath):
+    """
+    Attempt to fix common timing errors in an SRT file in-place.
+
+    Repairs:
+    - start >= end: resets end = start + estimated_duration
+      Estimated duration = duration of the next valid subtitle, capped to 3 s,
+      with a 1-second minimum so the subtitle is always visible.
+
+    Returns:
+        dict: {fixed: int, skipped: int, error: str|None}
+              fixed   — number of entries that were corrected
+              skipped — entries that could not be repaired
+              error   — None on success, error message on failure
+    """
+    import re as _re
+
+    TIMECODE_RE = _re.compile(
+        r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})"
+    )
+
+    def tc_to_ms(h, m, s, ms):
+        return ((int(h) * 3600) + (int(m) * 60) + int(s)) * 1000 + int(ms)
+
+    def ms_to_tc(total_ms):
+        total_ms = max(0, int(round(total_ms)))
+        ms = total_ms % 1000
+        s = (total_ms // 1000) % 60
+        m = (total_ms // 60000) % 60
+        h = total_ms // 3600000
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    ARROW_RE = _re.compile(
+        r"(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})"
+    )
+
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as fh:
+            content = fh.read()
+    except OSError as exc:
+        return {"fixed": 0, "skipped": 0, "error": str(exc)}
+
+    # Split into blocks: index, timecode-line, text, blank
+    blocks = _re.split(r'\n\n+', content.strip())
+    parsed = []   # (raw_block, start_ms, end_ms, arrow_match_span)
+
+    for block in blocks:
+        lines = block.strip().splitlines()
+        if len(lines) < 2:
+            parsed.append((block, None, None, None))
+            continue
+        # timecode line is usually lines[1], but search all just in case
+        tc_line_idx = None
+        tc_match = None
+        for li, line in enumerate(lines):
+            m = ARROW_RE.search(line)
+            if m:
+                tc_line_idx = li
+                tc_match = m
+                break
+        if tc_match is None:
+            parsed.append((block, None, None, None))
+            continue
+
+        tcs = TIMECODE_RE.findall(tc_match.group(0))
+        if len(tcs) < 2:
+            parsed.append((block, None, None, None))
+            continue
+
+        start_ms = tc_to_ms(*tcs[0])
+        end_ms   = tc_to_ms(*tcs[1])
+        parsed.append((block, start_ms, end_ms, (tc_line_idx, tc_match)))
+
+    fixed = 0
+    skipped = 0
+    new_blocks = []
+
+    for i, (block, start_ms, end_ms, tc_info) in enumerate(parsed):
+        if tc_info is None or start_ms is None:
+            new_blocks.append(block)
+            continue
+
+        if start_ms < end_ms:
+            # Already valid
+            new_blocks.append(block)
+            continue
+
+        # Need to repair: end <= start
+        # Estimate a sensible duration from the next valid entry
+        estimated_dur = 2000  # 2-second default
+        for j in range(i + 1, len(parsed)):
+            _, ns, ne, _ = parsed[j]
+            if ns is not None and ne is not None and ne > ns:
+                estimated_dur = min(ne - ns, 3000)
+                break
+
+        new_end_ms = start_ms + max(estimated_dur, 1000)
+
+        # Make sure new end doesn't overlap next subtitle's start
+        for j in range(i + 1, len(parsed)):
+            _, ns, ne, _ = parsed[j]
+            if ns is not None and ns > start_ms:
+                new_end_ms = min(new_end_ms, ns - 50)
+                break
+
+        new_end_ms = max(new_end_ms, start_ms + 100)  # at least 100 ms
+
+        tc_line_idx, tc_match = tc_info
+        lines = block.strip().splitlines()
+        old_tc_line = lines[tc_line_idx]
+        new_tc_line = old_tc_line[:tc_match.start(2)] + ms_to_tc(new_end_ms) + old_tc_line[tc_match.end(2):]
+        lines[tc_line_idx] = new_tc_line
+        new_blocks.append('\n'.join(lines))
+        fixed += 1
+
+    if fixed == 0:
+        return {"fixed": 0, "skipped": skipped, "error": None}
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as fh:
+            fh.write('\n\n'.join(new_blocks) + '\n')
+    except OSError as exc:
+        return {"fixed": 0, "skipped": 0, "error": str(exc)}
+
+    return {"fixed": fixed, "skipped": skipped, "error": None}
+
 
 # Global JSONL mode flag
 JSONL_MODE = False
@@ -213,7 +655,8 @@ def split_into_chunks(content, chunk_size=50):
     return chunks
 
 def get_system_prompt(provider, source_lang="English", target_lang="Bulgarian", context=None):
-    if provider == "openai" or provider == "openrouter":
+    _openai_compat = {"openai", "openrouter", "xai", "mistral", "groq", "deepseek", "moonshot", "gemini", "zai"}
+    if provider in _openai_compat:
         prompt = f"""You are a translator that translates subtitles from {source_lang} to {target_lang}.
         CRITICAL RULES:
         1. Output ONLY the translated subtitles
@@ -600,9 +1043,25 @@ def retry_translation(chunk, provider, model, system_prompt, max_retries=MAX_RET
                 translated = translate_with_openai(chunk, model, system_prompt)
             elif provider == "claude":
                 translated = translate_with_claude(chunk, model, system_prompt)
-            else:  # lmstudio
+            elif provider == "openrouter":
+                translated = translate_with_openrouter(chunk, model, system_prompt)
+            elif provider == "xai":
+                translated = translate_with_xai(chunk, model, system_prompt)
+            elif provider == "mistral":
+                translated = translate_with_mistral(chunk, model, system_prompt)
+            elif provider == "groq":
+                translated = translate_with_groq(chunk, model, system_prompt)
+            elif provider == "deepseek":
+                translated = translate_with_deepseek(chunk, model, system_prompt)
+            elif provider == "moonshot":
+                translated = translate_with_moonshot(chunk, model, system_prompt)
+            elif provider == "gemini":
+                translated = translate_with_gemini(chunk, model, system_prompt)
+            elif provider == "zai":
+                translated = translate_with_zai(chunk, model, system_prompt)
+            else:  # lmstudio / local
                 translated = translate_with_lmstudio(chunk, model, system_prompt)
-            
+
             # Ensure proper SRT format
             translated = ensure_srt_format(translated)
             
@@ -676,7 +1135,21 @@ def retry_translation_with_split(chunk, provider, model, system_prompt, split_de
             translated = translate_with_claude(chunk, model, system_prompt)
         elif provider == "openrouter":
             translated = translate_with_openrouter(chunk, model, system_prompt)
-        else:  # lmstudio
+        elif provider == "xai":
+            translated = translate_with_xai(chunk, model, system_prompt)
+        elif provider == "mistral":
+            translated = translate_with_mistral(chunk, model, system_prompt)
+        elif provider == "groq":
+            translated = translate_with_groq(chunk, model, system_prompt)
+        elif provider == "deepseek":
+            translated = translate_with_deepseek(chunk, model, system_prompt)
+        elif provider == "moonshot":
+            translated = translate_with_moonshot(chunk, model, system_prompt)
+        elif provider == "gemini":
+            translated = translate_with_gemini(chunk, model, system_prompt)
+        elif provider == "zai":
+            translated = translate_with_zai(chunk, model, system_prompt)
+        else:  # lmstudio / local
             translated = translate_with_lmstudio(chunk, model, system_prompt)
         
         # Ensure proper SRT format and spacing
@@ -826,13 +1299,48 @@ def translate_with_openrouter(content, model, system_prompt):
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Translate this content to Bulgarian. Output ONLY the translation with NO formatting:\n\n{content}"}
+            {"role": "user", "content": f"Translate this content. Output ONLY the translation with NO formatting:\n\n{content}"}
         ],
         temperature=0.1,
         max_tokens=4000
     )
     translated_text = response.choices[0].message.content.strip()
     return clean_openai_response(translated_text)
+
+def _translate_with_openai_compat(client, content, model, system_prompt):
+    """Generic translate using any OpenAI-compatible client."""
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Translate this content. Output ONLY the translation with NO formatting:\n\n{content}"}
+        ],
+        temperature=0.1,
+        max_tokens=4000
+    )
+    translated_text = response.choices[0].message.content.strip()
+    return clean_openai_response(translated_text)
+
+def translate_with_xai(content, model, system_prompt):
+    return _translate_with_openai_compat(get_xai_client(), content, model, system_prompt)
+
+def translate_with_mistral(content, model, system_prompt):
+    return _translate_with_openai_compat(get_mistral_client(), content, model, system_prompt)
+
+def translate_with_groq(content, model, system_prompt):
+    return _translate_with_openai_compat(get_groq_client(), content, model, system_prompt)
+
+def translate_with_deepseek(content, model, system_prompt):
+    return _translate_with_openai_compat(get_deepseek_client(), content, model, system_prompt)
+
+def translate_with_moonshot(content, model, system_prompt):
+    return _translate_with_openai_compat(get_moonshot_client(), content, model, system_prompt)
+
+def translate_with_gemini(content, model, system_prompt):
+    return _translate_with_openai_compat(get_gemini_client(), content, model, system_prompt)
+
+def translate_with_zai(content, model, system_prompt):
+    return _translate_with_openai_compat(get_zai_client(), content, model, system_prompt)
 
 def process_chunk(data):
     """Process a single chunk of subtitles"""
@@ -1025,7 +1533,63 @@ def process_srt_file(input_file, output_file, context=None, provider="openai", m
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(translated_content)
     log_output("File saved successfully", "✅ ", "info")
-    
+
+    # --- Subtitle output validation (with auto-repair) ---
+    log_output("Validating output file…", "🔍 ", "info")
+
+    # First pass: validate to detect issues
+    vr = validate_srt_file(output_file)
+    _timing_errors = vr["stats"].get("timing_errors", 0) if vr["stats"] else 0
+    _ordering_errors = vr["stats"].get("ordering_errors", 0) if vr["stats"] else 0
+
+    # Auto-repair timing issues (start >= end) and re-validate
+    if not vr["valid"] and (_timing_errors > 0 or _ordering_errors > 0):
+        repair_result = repair_srt_timing(output_file)
+        if repair_result["error"] is None and repair_result["fixed"] > 0:
+            log_output(
+                f"Auto-repaired {repair_result['fixed']} subtitle(s) with invalid timecodes",
+                "🔧 ", "warning"
+            )
+            # Re-validate after repair
+            vr = validate_srt_file(output_file)
+        elif repair_result["error"]:
+            log_output(f"Timing repair failed: {repair_result['error']}", "⚠️  ", "warning")
+
+    _vparser = vr["stats"].get("parser", "built-in") if vr["stats"] else "built-in"
+
+    if vr["valid"] and not vr["warnings"]:
+        log_output(
+            f"Validation passed ✓  {vr['subtitle_count']} subtitles  "
+            f"{vr['stats'].get('duration_seconds', 0):.1f}s  "
+            f"{vr['stats'].get('file_size_kb', 0):.1f} KB  "
+            f"[{_vparser}]",
+            "✅ ", "info",
+            data={"validation": vr}
+        )
+    elif vr["valid"]:
+        log_output(
+            f"Validation passed with warnings  {vr['subtitle_count']} subtitles  "
+            f"[{_vparser}]",
+            "⚠️  ", "warning",
+            data={"validation": vr}
+        )
+        for warn in vr["warnings"]:
+            log_output(f"  ⚠  {warn}", "", "warning")
+    else:
+        # Validation found errors — report as WARNING so the pipeline continues.
+        # The file was successfully translated and saved; these are quality issues,
+        # not translation failures. The user can see them in the log.
+        log_output(
+            f"Validation found {len(vr['errors'])} issue(s)  "
+            f"{vr['subtitle_count']} subtitles parsed  [{_vparser}]",
+            "⚠️  ", "warning",
+            data={"validation": vr}
+        )
+        for err in vr["errors"]:
+            log_output(f"  ✗  {err}", "", "warning")
+        for warn in vr["warnings"]:
+            log_output(f"  ⚠  {warn}", "", "warning")
+
     # Emit final result in JSONL mode
     if JSONL_MODE:
         try:
@@ -1033,7 +1597,8 @@ def process_srt_file(input_file, output_file, context=None, provider="openai", m
                 "input_file": input_file,
                 "output_file": output_file,
                 "duration": duration,
-                "outputs": [output_file]
+                "outputs": [output_file],
+                "validation": vr,
             })
             # Force flush all output before exit
             sys.stdout.flush()
@@ -1132,7 +1697,7 @@ if __name__ == "__main__":
     group.add_argument("-d", "--directory", help="Path to directory containing SRT files")
     parser.add_argument("-o", "--output", help="Output file path (optional)")
     parser.add_argument("-c", "--context", help="Context about the film/show to improve translation")
-    parser.add_argument("-p", "--provider", choices=["openai", "claude", "openrouter", "local"], default="openai", help="Translation provider")
+    parser.add_argument("-p", "--provider", choices=["openai", "claude", "openrouter", "local", "xai", "mistral", "groq", "deepseek", "moonshot", "gemini", "zai"], default="openai", help="Translation provider")
     parser.add_argument("-m", "--model", help="Model to use (provider-specific)")
     parser.add_argument("-w", "--workers", type=int, help="Number of concurrent workers")
     parser.add_argument("-s", "--chunk-size", type=int, help="Number of subtitles per chunk")
@@ -1147,34 +1712,29 @@ if __name__ == "__main__":
     # Set global JSONL mode
     JSONL_MODE = args.jsonl
 
-    # Validate and set default model based on provider
+    # Set default model based on provider; accept any non-empty model string (live-fetched models)
     print(f"DEBUG: Starting model validation for provider: {args.provider}, model: {args.model}", file=sys.stderr, flush=True)
-    if args.provider == "openai":
-        if not args.model:
-            args.model = "gpt-4o-mini"
-        elif args.model not in OPENAI_MODELS:
-            error_msg = f"Error: Invalid OpenAI model. Available models: {', '.join(OPENAI_MODELS)}"
-            log_output(error_msg, "", "error")
-            sys.exit(1)
-    elif args.provider == "claude":
-        if not args.model:
-            args.model = "claude-haiku-4-5-20251001"
-        elif args.model not in CLAUDE_MODELS:
-            error_msg = f"Error: Invalid Claude model. Available models: {', '.join(CLAUDE_MODELS)}"
-            log_output(error_msg, "", "error")
-            sys.exit(1)
-    elif args.provider == "openrouter":
-        if not args.model:
-            args.model = "anthropic/claude-haiku-4-5-20251001"
-        elif args.model not in OPENROUTER_MODELS and args.model != "custom":
-            # Allow any model ID if it's not in the list (for custom models)
-            # Just validate it's not empty
-            if not args.model.strip():
-                error_msg = f"Error: Model name cannot be empty. Suggested models: {', '.join(OPENROUTER_MODELS[:-1])}"
+    _provider_defaults = {
+        "openai":     "gpt-4o-mini",
+        "claude":     "claude-haiku-4-5-20251001",
+        "openrouter": "anthropic/claude-haiku-4-5-20251001",
+        "xai":        "grok-beta",
+        "mistral":    "mistral-small-latest",
+        "groq":       "llama-3.3-70b-versatile",
+        "deepseek":   "deepseek-chat",
+        "moonshot":   "moonshot-v1-8k",
+        "gemini":     "gemini-1.5-flash",
+        "zai":        "glm-4.7",
+    }
+    if args.provider == "local":
+        args.model = "local"  # LM Studio always uses the currently loaded model
+    else:
+        if not args.model or not args.model.strip():
+            args.model = _provider_defaults.get(args.provider, "")
+            if not args.model:
+                error_msg = f"Error: No model specified for provider '{args.provider}'"
                 log_output(error_msg, "", "error")
                 sys.exit(1)
-    else:  # lmstudio
-        args.model = "local"  # LM Studio always uses the currently loaded model
 
     if args.directory:
         log_output(f"Starting translation of all SRT files in {args.directory}", "", "info")

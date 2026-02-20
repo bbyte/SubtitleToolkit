@@ -15,7 +15,7 @@ from datetime import datetime
 from PySide6.QtCore import QObject, QProcess, QTimer, QThread
 from PySide6.QtWidgets import QApplication
 
-from .config_models import ExtractConfig, TranslateConfig, SyncConfig
+from .config_models import ExtractConfig, TranslateConfig, SyncConfig, FpsSyncConfig
 from .events import Event, EventType, Stage, ProcessResult, EventAggregator, ScriptRunnerSignals
 from .jsonl_parser import JSONLParser
 
@@ -81,12 +81,14 @@ class ScriptRunner(QObject):
                 f"extract_mkv_subtitles{exe_ext}",
                 f"srtTranslateWhole{exe_ext}",
                 f"srt_names_sync{exe_ext}",
+                f"srt_fps_convert{exe_ext}",
             ]
         else:
             required = [
                 "extract_mkv_subtitles.py",
                 "srtTranslateWhole.py",
                 "srt_names_sync.py",
+                "srt_fps_convert.py",
             ]
 
         possible_paths = [
@@ -167,6 +169,37 @@ class ScriptRunner(QObject):
         # Start process
         return self._start_process(command, config.get_env_vars() if hasattr(config, 'get_env_vars') else {})
     
+    def run_fps_sync(self, config: FpsSyncConfig) -> QProcess:
+        """
+        Run FPS frame-rate conversion script.
+
+        Args:
+            config: FPS sync configuration
+
+        Returns:
+            QProcess: The started process
+
+        Raises:
+            RuntimeError: If another process is already running or config is invalid
+        """
+        if self.is_running:
+            raise RuntimeError("Another process is already running")
+
+        # Validate configuration
+        is_valid, error_msg = config.validate()
+        if not is_valid:
+            raise RuntimeError(f"FPS sync configuration validation failed: {error_msg}")
+
+        # Set up for FPS conversion
+        self._current_stage = Stage.FPS_SYNC
+        self._current_config = config
+
+        # Build command
+        command = self._build_command("srt_fps_convert", config.to_cli_args())
+
+        # Start process
+        return self._start_process(command, config.get_env_vars())
+
     def run_translate(self, config: TranslateConfig) -> QProcess:
         """
         Run SRT translation script.
