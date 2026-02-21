@@ -37,6 +37,7 @@ CLI_SCRIPTS = [
     "extract_mkv_subtitles",
     "srtTranslateWhole",
     "srt_names_sync",
+    "srt_fps_convert",
 ]
 
 
