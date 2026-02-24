@@ -17,12 +17,12 @@ from app.widgets.project_selector import ProjectSelector
 from app.widgets.stage_toggles import StageToggles
 from app.widgets.stage_configurators import StageConfigurators
 from app.widgets.progress_section import ProgressSection
+from app.widgets.processing_banner import ProcessingBanner
 from app.widgets.log_panel import LogPanel
 from app.widgets.results_panel import ResultsPanel
 from app.widgets.action_buttons import ActionButtons
 
 from app.dialogs.settings_dialog import SettingsDialog
-from app.dialogs.progress_dialog import ProgressDialog
 from app.dialogs.sync_confirmation_dialog import SyncConfirmationDialog
 from app.dialogs.video_preview_dialog import VideoPreviewDialog
 from app.config.config_manager import ConfigManager
@@ -94,8 +94,8 @@ class MainWindow(QMainWindow):
         # Settings dialog (created on demand)
         self._settings_dialog = None
 
-        # Progress dialog (created on demand)
-        self._progress_dialog = None
+        # Alias kept for existing call sites — points to the inline banner
+        self._progress_dialog = self.processing_banner
 
         # Status update timer
         self._status_timer = QTimer()
@@ -112,6 +112,7 @@ class MainWindow(QMainWindow):
         self.stage_toggles = StageToggles()
         self.stage_configurators = StageConfigurators(self.config_manager)
         self.progress_section = ProgressSection()
+        self.processing_banner = ProcessingBanner()
         self.log_panel = LogPanel()
         self.results_panel = ResultsPanel()
         self.action_buttons = ActionButtons()
@@ -150,9 +151,11 @@ class MainWindow(QMainWindow):
         # Configuration section
         main_layout.addWidget(self.stage_configurators)
         
-        # Note: Progress section is now shown in a modal dialog
-        # Keep the widget for backwards compatibility but hide it
+        # Legacy progress section — hidden, kept for reference only
         self.progress_section.setVisible(False)
+
+        # Inline processing banner (non-modal; replaces the old modal dialog)
+        main_layout.addWidget(self.processing_banner)
 
         # Create tab widget for log and results - expands to fill space
         tab_widget = QTabWidget()
@@ -293,6 +296,17 @@ class MainWindow(QMainWindow):
         # Tools menu
         tools_menu = menubar.addMenu(self.tr("&Tools"))
         
+        # Calibrate Model action
+        calibrate_action = QAction(self.tr("&Calibrate Model…"), self)
+        calibrate_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        calibrate_action.setStatusTip(
+            self.tr("Probe an AI model to find optimal chunk size and worker settings")
+        )
+        calibrate_action.triggered.connect(self._show_calibration_dialog)
+        tools_menu.addAction(calibrate_action)
+
+        tools_menu.addSeparator()
+
         # Check Dependencies action
         check_deps_action = QAction(self.tr("Check &Dependencies"), self)
         check_deps_action.setStatusTip(self.tr("Check for required dependencies"))
@@ -483,9 +497,12 @@ class MainWindow(QMainWindow):
         self.project_changed.connect(self._update_project_dependent_ui)
         self.stages_changed.connect(self._update_stage_dependent_ui)
         
+        # Processing banner signals
+        self.processing_banner.cancel_requested.connect(self._on_progress_dialog_cancel)
+
         # Log panel signals
         self.log_panel.message_logged.connect(self._on_log_message)
-        
+
         # Script runner signals
         self._connect_runner_signals()
         
@@ -511,6 +528,9 @@ class MainWindow(QMainWindow):
             # Apply file type constraints based on selected file
             self.stage_toggles.set_file_type_constraints(path)
 
+        # Update translate cost estimate with the selected path
+        self.stage_configurators.update_translate_cost_estimate(path)
+
         # Enable preview button when a file or directory is selected
         self.action_buttons.set_preview_enabled(True)
     
@@ -524,6 +544,9 @@ class MainWindow(QMainWindow):
 
         # Clear file type constraints
         self.stage_toggles.set_file_type_constraints("")
+
+        # Clear translate cost estimate
+        self.stage_configurators.update_translate_cost_estimate("")
 
         # Disable preview button when no project is selected
         self.action_buttons.set_preview_enabled(False)
@@ -745,6 +768,26 @@ class MainWindow(QMainWindow):
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
     
+    def _show_calibration_dialog(self) -> None:
+        """Open the Calibrate Model dialog, pre-filled from the current translate settings."""
+        from app.dialogs.calibration_dialog import CalibrationDialog
+
+        translate_settings = self.stage_configurators.get_translate_config()
+        dialog = CalibrationDialog(
+            model    = translate_settings.get("model", ""),
+            provider = translate_settings.get("provider", ""),
+            api_key  = translate_settings.get("api_key", ""),
+            parent   = self,
+        )
+        dialog.calibration_saved.connect(self._on_calibration_saved)
+        dialog.show()
+
+    def _on_calibration_saved(self, model: str) -> None:
+        """Refresh the calibration indicator in the translate widget after calibration."""
+        self.log_panel.add_message("info", f"Calibration saved for model: {model}")
+        if hasattr(self.stage_configurators, "translate_config"):
+            self.stage_configurators.translate_config._update_cal_status()
+
     def _check_dependencies(self) -> None:
         """Check for required dependencies."""
         if self._settings_dialog is None:
@@ -997,38 +1040,14 @@ class MainWindow(QMainWindow):
         event.accept()
     
     def _show_progress_dialog(self, stages: list) -> None:
-        """
-        Create and show the progress dialog.
-
-        Args:
-            stages: List of enabled stage names
-        """
-        # Create dialog if not exists
-        if self._progress_dialog is None:
-            self._progress_dialog = ProgressDialog(self, auto_close_on_success=False)
-            # Connect cancel signal
-            self._progress_dialog.cancel_requested.connect(self._on_progress_dialog_cancel)
-            self._progress_dialog.dialog_closed.connect(self._on_progress_dialog_closed)
-
-        # Start processing in dialog
-        self._progress_dialog.start_processing(stages)
-
-        # Show dialog
-        self._progress_dialog.show()
-        self._progress_dialog.raise_()
-        self._progress_dialog.activateWindow()
+        """Show the inline processing banner and start progress tracking."""
+        self.processing_banner.start_processing(stages)
 
     def _on_progress_dialog_cancel(self) -> None:
-        """Handle cancel request from progress dialog."""
+        """Handle cancel request from the processing banner."""
         if self.script_runner.is_running:
             self.script_runner.cancel_current_process()
             self.log_panel.add_message("info", "Processing cancellation requested")
-
-    def _on_progress_dialog_closed(self) -> None:
-        """Handle progress dialog being closed."""
-        # If process is still running when dialog closes, cancel it
-        if self.script_runner.is_running:
-            self.script_runner.cancel_current_process()
 
     def _connect_runner_signals(self) -> None:
         """Connect ScriptRunner signals to UI handlers."""
@@ -1043,6 +1062,7 @@ class MainWindow(QMainWindow):
         # Event signals from JSONL stream
         signals.debug_received.connect(self._on_debug_received)
         signals.info_received.connect(self._on_info_received)
+        signals.info_data_received.connect(self._on_info_data_received)
         signals.progress_updated.connect(self._on_progress_updated)
         signals.warning_received.connect(self._on_warning_received)
         signals.error_received.connect(self._on_error_received)
@@ -1180,7 +1200,7 @@ class MainWindow(QMainWindow):
         # Show confirmation dialog
         confirmation_dialog = SyncConfirmationDialog(operations, self)
 
-        # Hide progress dialog temporarily
+        # Hide banner temporarily while confirmation dialog is shown
         if self._progress_dialog:
             self._progress_dialog.hide()
 
@@ -1189,7 +1209,7 @@ class MainWindow(QMainWindow):
             # User confirmed - execute the operations
             self.log_panel.add_message("info", "User confirmed sync operations, executing...")
 
-            # Show progress dialog again
+            # Restore banner
             if self._progress_dialog:
                 self._progress_dialog.show()
                 self._progress_dialog.update_stage("sync", "Executing rename operations...")
@@ -1422,13 +1442,16 @@ class MainWindow(QMainWindow):
                     model=translate_settings.get('model') or provider_config.get('default_model', ''),
                     api_key=api_key,
                     base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
-                    max_workers=advanced_config.get('max_concurrent_workers', 3),
+                    max_workers=translate_settings.get('max_workers', 2),
+                    chunk_size=translate_settings.get('chunk_size', 20),
                     temperature=provider_config.get('temperature', 0.3),
                     max_tokens=provider_config.get('max_tokens', 4096),
                     timeout=provider_config.get('timeout', 30),
                     overwrite_existing=translate_settings.get('overwrite_existing', False),
+                    price_input=translate_settings.get('price_input', 0.0),
+                    price_output=translate_settings.get('price_output', 0.0),
                 )
-        
+
         # Directory mode (or fallback for single file) - use input_directory
         return TranslateConfig(
             input_directory=selected_path,
@@ -1439,11 +1462,14 @@ class MainWindow(QMainWindow):
             model=translate_settings.get('model') or provider_config.get('default_model', ''),
             api_key=api_key,
             base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
-            max_workers=advanced_config.get('max_concurrent_workers', 3),
+            max_workers=translate_settings.get('max_workers', 2),
+            chunk_size=translate_settings.get('chunk_size', 20),
             temperature=provider_config.get('temperature', 0.3),
             max_tokens=provider_config.get('max_tokens', 4096),
             timeout=provider_config.get('timeout', 30),
             overwrite_existing=translate_settings.get('overwrite_existing', False),
+            price_input=translate_settings.get('price_input', 0.0),
+            price_output=translate_settings.get('price_output', 0.0),
         )
     
     def _build_sync_config(self) -> SyncConfig:
@@ -1636,6 +1662,11 @@ class MainWindow(QMainWindow):
         self.log_panel.add_message("info", message)
         if self._progress_dialog:
             self._progress_dialog.add_log_message("info", message)
+
+    def _on_info_data_received(self, stage: Stage, data: dict) -> None:
+        """Handle info event with structured data. Used to surface translation stats in the UI."""
+        if stage == Stage.TRANSLATE and 'api_calls_ok' in data:
+            self.results_panel.show_translate_stats(data)
 
     def _on_progress_updated(self, stage: Stage, progress: int, message: str) -> None:
         """Handle progress update from process."""

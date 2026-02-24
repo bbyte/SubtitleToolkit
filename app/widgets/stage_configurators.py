@@ -14,9 +14,9 @@ from typing import Dict, Any, Optional, List, Tuple
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QCheckBox, QSlider, QFileDialog, QGroupBox, QFormLayout,
-    QSpinBox, QTextEdit, QFrame
+    QSpinBox, QDoubleSpinBox, QTextEdit, QFrame
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QSettings
 from PySide6.QtGui import QFont
 
 from ..config.settings_schema import SettingsSchema
@@ -450,6 +450,8 @@ class TranslateConfigWidget(QFrame):
     def __init__(self, config_manager=None, parent: QWidget = None):
         super().__init__(parent)
         self._config_manager = config_manager
+        self._loading_model_settings = False   # guard against save-during-load loops
+        self._estimate_path = ""               # cached path for re-estimation on price change
         self._setup_ui()
         self._connect_signals()
         self._load_api_key_from_settings()
@@ -489,9 +491,28 @@ class TranslateConfigWidget(QFrame):
         ])
         layout.addRow("Translation Engine:", self.engine_combo)
         
-        # Model selection (engine-specific)
+        # Model selection (engine-specific) + calibration indicator
+        model_row = QHBoxLayout()
+        model_row.setSpacing(6)
+
         self.model_combo = QComboBox()
-        layout.addRow("Model:", self.model_combo)
+        model_row.addWidget(self.model_combo, 1)
+
+        self.cal_status_label = QLabel("○")
+        self.cal_status_label.setFixedWidth(20)
+        self.cal_status_label.setAlignment(Qt.AlignCenter)
+        self.cal_status_label.setStyleSheet("color: #888; font-size: 13pt;")
+        self.cal_status_label.setToolTip("Not yet calibrated — click 'Calibrate…' to probe this model")
+        model_row.addWidget(self.cal_status_label)
+
+        self.calibrate_btn = QPushButton("Calibrate…")
+        self.calibrate_btn.setMaximumWidth(92)
+        self.calibrate_btn.setFixedHeight(24)
+        self.calibrate_btn.setToolTip("Probe this model to find optimal chunk size and worker settings")
+        self.calibrate_btn.clicked.connect(self._show_calibration_dialog)
+        model_row.addWidget(self.calibrate_btn)
+
+        layout.addRow("Model:", model_row)
         
         # API key field
         api_key_layout = QHBoxLayout()
@@ -508,10 +529,69 @@ class TranslateConfigWidget(QFrame):
         # Advanced options
         self.chunk_size_spin = QSpinBox()
         self.chunk_size_spin.setRange(1, 9999)
-        self.chunk_size_spin.setValue(200)
+        self.chunk_size_spin.setValue(20)
         self.chunk_size_spin.setSuffix(" subtitles")
+        self.chunk_size_spin.setToolTip(
+            "Subtitles per API request.\n"
+            "Lower = fewer token limit issues (try 25 if you see truncation warnings).\n"
+            "Higher = fewer API calls but more likely to hit model output limits."
+        )
         layout.addRow("Chunk Size:", self.chunk_size_spin)
-        
+
+        self.workers_spin = QSpinBox()
+        self.workers_spin.setRange(1, 20)
+        self.workers_spin.setValue(2)
+        self.workers_spin.setSuffix(" workers")
+        self.workers_spin.setToolTip(
+            "Concurrent API requests sent in parallel.\n"
+            "Lower = fewer rate-limit errors, less server load.\n"
+            "Higher = faster translation but more likely to hit rate limits."
+        )
+        layout.addRow("Concurrent Workers:", self.workers_spin)
+
+        # Per-model price spinboxes (USD per 1M tokens)
+        price_layout = QHBoxLayout()
+        self.price_input_spin = QDoubleSpinBox()
+        self.price_input_spin.setRange(0.0, 9999.0)
+        self.price_input_spin.setDecimals(4)
+        self.price_input_spin.setSingleStep(0.01)
+        self.price_input_spin.setPrefix("$")
+        self.price_input_spin.setToolTip(
+            "Price per 1 million input (prompt) tokens in USD.\n"
+            "Set to 0 to disable cost tracking for this model."
+        )
+        in_label = QLabel("In")
+        in_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        self.price_output_spin = QDoubleSpinBox()
+        self.price_output_spin.setRange(0.0, 9999.0)
+        self.price_output_spin.setDecimals(4)
+        self.price_output_spin.setSingleStep(0.01)
+        self.price_output_spin.setPrefix("$")
+        self.price_output_spin.setToolTip(
+            "Price per 1 million output (completion) tokens in USD.\n"
+            "Set to 0 to disable cost tracking for this model."
+        )
+        out_label = QLabel("Out")
+        out_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        price_layout.addWidget(in_label)
+        price_layout.addWidget(self.price_input_spin)
+        price_layout.addSpacing(10)
+        price_layout.addWidget(out_label)
+        price_layout.addWidget(self.price_output_spin)
+        price_layout.addStretch()
+        price_hint = QLabel("USD / 1M tokens")
+        price_hint.setStyleSheet("color: #888; font-size: 9px;")
+        price_layout.addWidget(price_hint)
+        layout.addRow("Price (per model):", price_layout)
+
+        # Pre-flight cost estimate (hidden until a project is selected)
+        self._estimate_label = QLabel()
+        self._estimate_label.setWordWrap(True)
+        self._estimate_label.setVisible(False)
+        layout.addRow(self._estimate_label)   # full-width row (no label column)
+
         self.context_edit = QTextEdit()
         self.context_edit.setMaximumHeight(80)
         self.context_edit.setPlaceholderText("Optional: Movie/show context for better translations")
@@ -527,10 +607,21 @@ class TranslateConfigWidget(QFrame):
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
         self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.model_combo.currentTextChanged.connect(self._save_last_used)
+        self.model_combo.currentTextChanged.connect(lambda _: self._load_model_settings())
+        self.model_combo.currentTextChanged.connect(lambda _: self._update_cal_status())
         self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
         self.chunk_size_spin.valueChanged.connect(lambda: self.config_changed.emit())
+        self.chunk_size_spin.valueChanged.connect(lambda _: self._save_model_settings())
+        self.workers_spin.valueChanged.connect(lambda: self.config_changed.emit())
+        self.workers_spin.valueChanged.connect(lambda _: self._save_model_settings())
+        self.price_input_spin.valueChanged.connect(lambda: self.config_changed.emit())
+        self.price_input_spin.valueChanged.connect(lambda _: self._save_model_settings())
+        self.price_input_spin.valueChanged.connect(lambda _: self._refresh_estimate())
+        self.price_output_spin.valueChanged.connect(lambda: self.config_changed.emit())
+        self.price_output_spin.valueChanged.connect(lambda _: self._save_model_settings())
+        self.price_output_spin.valueChanged.connect(lambda _: self._refresh_estimate())
         self.context_edit.textChanged.connect(lambda: self.config_changed.emit())
-        
+
         self.show_key_button.toggled.connect(self._toggle_api_key_visibility)
     
     def _on_engine_changed(self) -> None:
@@ -730,6 +821,233 @@ class TranslateConfigWidget(QFrame):
             if idx >= 0:
                 self.model_combo.setCurrentIndex(idx)
 
+        # Refresh calibration indicator for the restored model
+        self._update_cal_status()
+
+    def _get_model_key(self, model: str) -> str:
+        """Sanitize a model name for use as a QSettings group key."""
+        safe = ''.join(c if c.isalnum() or c in '._-' else '_' for c in model)
+        return safe or '__unknown__'
+
+    def _load_model_settings(self) -> None:
+        """Load per-model settings (chunk size, workers, prices) from QSettings."""
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+        if not model:
+            return
+
+        self._loading_model_settings = True
+        try:
+            qs = QSettings("SubtitleToolkit", "ModelProfiles")
+            key = self._get_model_key(model)
+
+            qs.beginGroup(key)
+            chunk   = int(qs.value("chunk_size",   20))
+            workers = int(qs.value("max_workers",   2))
+            p_in    = float(qs.value("price_input",  0.0))
+            p_out   = float(qs.value("price_output", 0.0))
+            qs.endGroup()
+
+            self.chunk_size_spin.setValue(chunk)
+            self.workers_spin.setValue(workers)
+            self.price_input_spin.setValue(p_in)
+            self.price_output_spin.setValue(p_out)
+        finally:
+            self._loading_model_settings = False
+
+    def _save_model_settings(self) -> None:
+        """Save current per-model settings to QSettings (no-op while loading)."""
+        if self._loading_model_settings:
+            return
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+        if not model:
+            return
+
+        qs = QSettings("SubtitleToolkit", "ModelProfiles")
+        qs.beginGroup(self._get_model_key(model))
+        qs.setValue("chunk_size",   self.chunk_size_spin.value())
+        qs.setValue("max_workers",  self.workers_spin.value())
+        qs.setValue("price_input",  self.price_input_spin.value())
+        qs.setValue("price_output", self.price_output_spin.value())
+        qs.endGroup()
+
+    # ── Cost estimation ──────────────────────────────────────────────────────
+
+    def update_cost_estimate(self, path: str) -> None:
+        """Cache path and compute a pre-flight cost estimate for the SRT files."""
+        self._estimate_path = path
+        self._refresh_estimate()
+
+    def _refresh_estimate(self) -> None:
+        """Recompute the estimate from the cached path and current price settings."""
+        import re
+        from pathlib import Path
+
+        path = self._estimate_path
+        if not path:
+            self._estimate_label.setVisible(False)
+            return
+
+        p = Path(path)
+
+        # Collect SRT files
+        if p.is_file():
+            if p.suffix.lower() == '.srt':
+                srt_files = [p]
+            else:
+                # MKV or other: look for SRTs alongside it
+                srt_files = sorted(p.parent.glob('*.srt'))
+        else:
+            srt_files = sorted(p.glob('*.srt'))
+
+        if not srt_files:
+            self._estimate_label.setText(
+                self.tr("No SRT files found — select a project directory with .srt files")
+            )
+            self._estimate_label.setStyleSheet("color: #888; font-size: 10pt; font-style: italic;")
+            self._estimate_label.setVisible(True)
+            return
+
+        # Count subtitle text characters (skip index numbers, timestamps, blank lines)
+        _timestamp_re = re.compile(
+            r'^\d{2}:\d{2}:\d{2}[,\.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,\.]\d{3}'
+        )
+        total_chars = 0
+        total_subtitles = 0
+
+        for srt_file in srt_files:
+            try:
+                content = srt_file.read_text(encoding='utf-8', errors='replace')
+            except Exception:
+                continue
+            for line in content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.isdigit():
+                    total_subtitles += 1
+                    continue
+                if _timestamp_re.match(line):
+                    continue
+                total_chars += len(line)
+
+        if total_chars == 0:
+            self._estimate_label.setVisible(False)
+            return
+
+        # Token estimates:
+        #   • ~3.5 chars per token (conservative for mixed-language content)
+        #   • +25% input overhead for JSON framing, system prompt, timestamps
+        #   • Output ≈ 95% of raw source tokens (translated text, no framing)
+        raw_tokens = total_chars / 3.5
+        input_tokens = int(raw_tokens * 1.25)
+        output_tokens = int(raw_tokens * 0.95)
+
+        price_in = self.price_input_spin.value()
+        price_out = self.price_output_spin.value()
+
+        def _fmt(n: int) -> str:
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.2f}M"
+            if n >= 1_000:
+                return f"{n / 1_000:.1f}K"
+            return str(n)
+
+        n_files = len(srt_files)
+        file_word = self.tr("file") if n_files == 1 else self.tr("files")
+        meta = f"{n_files} {file_word}, {total_subtitles:,} subtitles"
+        tokens_str = f"≈ {_fmt(input_tokens)} in / {_fmt(output_tokens)} out tokens"
+
+        if price_in > 0 or price_out > 0:
+            est_cost = (
+                (input_tokens / 1_000_000) * price_in
+                + (output_tokens / 1_000_000) * price_out
+            )
+            cost_str = "< $0.01" if est_cost < 0.01 else f"${est_cost:.3f}"
+            text = f"{tokens_str}  ·  Est. cost: {cost_str}  ({meta})"
+            color = "#66bb6a" if est_cost < 1.0 else "#ffa726"
+        else:
+            text = f"{tokens_str}  ·  Set prices above to estimate cost  ({meta})"
+            color = "#888"
+
+        self._estimate_label.setText(text)
+        self._estimate_label.setStyleSheet(
+            f"color: {color}; font-size: 10pt; font-style: italic;"
+        )
+        self._estimate_label.setVisible(True)
+
+    # ── Calibration status ────────────────────────────────────────────────────
+
+    def _update_cal_status(self) -> None:
+        """Refresh the calibration indicator next to the model combo."""
+        from app.calibration.store import load_calibration
+
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+
+        data = load_calibration(model) if model else None
+
+        if data:
+            self.cal_status_label.setText("✓")
+            self.cal_status_label.setStyleSheet(
+                "color: #66bb6a; font-size: 13pt; font-weight: bold;"
+            )
+            date    = data.get("date", "unknown")
+            chunk   = data.get("max_chunk_size", "?")
+            workers = data.get("max_workers", "?")
+            latency = data.get("latency_avg_ms", 0)
+            self.cal_status_label.setToolTip(
+                f"Calibrated on {date}\n"
+                f"Max chunk size : {chunk} subtitles\n"
+                f"Max workers    : {workers} concurrent\n"
+                f"Avg latency    : {latency:.0f} ms\n\n"
+                "Click 'Re-calibrate' to re-run the probe."
+            )
+            self.calibrate_btn.setText("Re-calibrate")
+        else:
+            self.cal_status_label.setText("○")
+            self.cal_status_label.setStyleSheet("color: #888; font-size: 13pt;")
+            self.cal_status_label.setToolTip(
+                "Not yet calibrated.\n"
+                "Click 'Calibrate…' to probe chunk size and worker limits."
+            )
+            self.calibrate_btn.setText("Calibrate…")
+
+    def _show_calibration_dialog(self) -> None:
+        """Open the calibration dialog pre-filled with the current model settings."""
+        from app.dialogs.calibration_dialog import CalibrationDialog
+
+        model = self.model_combo.currentText()
+        if model.startswith("★ "):
+            model = model[2:].strip()
+
+        # Map combo engine name to internal provider id
+        provider_mapping = {
+            "openai":    "openai", "claude":    "claude",
+            "openrouter":"openrouter", "xai":   "xai",
+            "mistral":   "mistral",   "groq":   "groq",
+            "deepseek":  "deepseek",  "kimi":   "kimi",
+            "gemini":    "gemini",    "z.ai":   "zai",
+            "lm_studio": "local",
+        }
+        engine_raw = self.engine_combo.currentText().lower().replace(" ", "_")
+        provider = provider_mapping.get(engine_raw, engine_raw)
+
+        dialog = CalibrationDialog(
+            model    = model,
+            provider = provider,
+            api_key  = self.api_key_edit.text(),
+            parent   = self,
+        )
+        dialog.calibration_saved.connect(lambda _: self._update_cal_status())
+        dialog.exec()
+        # Always refresh after dialog closes (user may have completed calibration)
+        self._update_cal_status()
+
     def _toggle_api_key_visibility(self, show: bool) -> None:
         """Toggle API key visibility."""
         if show:
@@ -771,6 +1089,9 @@ class TranslateConfigWidget(QFrame):
             'model': model,
             'api_key': self.api_key_edit.text(),
             'chunk_size': self.chunk_size_spin.value(),
+            'max_workers': self.workers_spin.value(),
+            'price_input': self.price_input_spin.value(),
+            'price_output': self.price_output_spin.value(),
             'context': self.context_edit.toPlainText().strip()
         }
     
@@ -1496,6 +1817,10 @@ class StageConfigurators(QFrame):
         """Set the project directory for all configurations."""
         self._project_directory = directory
         self.extract_config.set_project_directory(directory)
+
+    def update_translate_cost_estimate(self, path: str) -> None:
+        """Forward a path (file or directory) to the translate widget for cost estimation."""
+        self.translate_config.update_cost_estimate(path)
     
     def get_configurations(self) -> Dict[str, Dict[str, Any]]:
         """Get all stage configurations."""

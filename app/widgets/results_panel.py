@@ -444,6 +444,81 @@ class ResultsPanel(QFrame):
             except Exception as e:
                 print(f"Failed to export results: {str(e)}")
     
+    def show_translate_stats(self, data: dict) -> None:
+        """Display translation statistics in the Summary tab and switch to it."""
+        total = data.get('total_subtitles', '?')
+        chunk_start = data.get('chunk_size_start')
+        chunk_final = data.get('chunk_size_final')
+        reductions = data.get('size_reductions', 0)
+        ok = data.get('api_calls_ok', 0)
+        failed = data.get('api_calls_failed', 0)
+        splits = data.get('splits', 0)
+        pre_splits = data.get('pre_splits', 0)
+        in_tok = data.get('input_tokens', 0)
+        out_tok = data.get('output_tokens', 0)
+        cost = data.get('cost_usd')
+        fallback_count = data.get('fallback_count', 0)
+        recovered = data.get('recovered', 0)
+        still_original = data.get('still_original', 0)
+
+        lines = [
+            "TRANSLATION STATISTICS",
+            "=" * 48,
+            f"  Subtitles   : {total} total",
+        ]
+
+        # Chunk size
+        if chunk_start is not None and chunk_final is not None:
+            if chunk_final < chunk_start:
+                lines.append(f"  Chunk size  : {chunk_start} → {chunk_final}  (reduced {reductions}×)")
+            else:
+                lines.append(f"  Chunk size  : {chunk_start}")
+
+        # API calls
+        calls_str = f"{ok} ok"
+        if failed:
+            calls_str += f" + {failed} failed"
+        lines.append(f"  API calls   : {calls_str}")
+
+        # Splits
+        if splits or pre_splits:
+            split_str = str(splits)
+            if pre_splits:
+                split_str += f"  ({pre_splits} pre-split, no extra API call)"
+            lines.append(f"  Splits      : {split_str}")
+
+        # Tokens
+        if in_tok or out_tok:
+            lines.append(f"  Tokens      : {in_tok:,} in + {out_tok:,} out")
+
+        # Cost
+        if cost is not None:
+            lines.append(f"  Cost        : ${cost:.4f} USD")
+
+        # Completeness
+        if fallback_count:
+            comp = (total - still_original) if isinstance(total, int) else '?'
+            comp_str = f"  Completeness: {comp}/{total}"
+            if recovered:
+                comp_str += f"  ({recovered} recovered by repair)"
+            if still_original:
+                comp_str += f"  — {still_original} kept original ⚠"
+            else:
+                comp_str += "  ✓"
+            lines.append(comp_str)
+        else:
+            lines.append(f"  Completeness: {total}/{total}  ✓")
+
+        lines.append("=" * 48)
+
+        if failed or still_original:
+            lines.append("")
+            lines.append("  ⚠  Issues detected — see Log tab for details.")
+
+        self.summary_text.setPlainText("\n".join(lines))
+        # Auto-switch to the Summary tab so the user sees it immediately
+        self.tab_widget.setCurrentWidget(self.summary_widget)
+
     def get_results_summary(self) -> Dict[str, int]:
         """Get a summary of results counts."""
         return {

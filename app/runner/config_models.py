@@ -116,10 +116,14 @@ class TranslateConfig:
 
     # Processing options
     max_workers: int = 3
-    chunk_size: int = 200
+    chunk_size: int = 20
     temperature: float = 0.3
     max_tokens: int = 4096
     timeout: int = 30
+
+    # Cost tracking (USD per 1M tokens, 0 = disabled)
+    price_input: float = 0.0
+    price_output: float = 0.0
 
     # Output options
     overwrite_existing: bool = False
@@ -256,6 +260,12 @@ class TranslateConfig:
         # Processing options (only include supported arguments)
         args.extend(["-w", str(self.max_workers)])
         args.extend(["-s", str(self.chunk_size)])
+
+        # Cost tracking (only pass if non-zero)
+        if self.price_input > 0:
+            args.extend(["--price-input", str(self.price_input)])
+        if self.price_output > 0:
+            args.extend(["--price-output", str(self.price_output)])
 
         # Note: temperature, max_tokens, timeout not supported by script
         # overwrite_existing not supported by script

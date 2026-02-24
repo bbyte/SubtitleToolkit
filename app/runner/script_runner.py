@@ -906,6 +906,8 @@ class ScriptRunner(QObject):
         
         if event.event_type == EventType.INFO:
             self.signals.info_received.emit(event.stage, event.message)
+            if event.data:
+                self.signals.info_data_received.emit(event.stage, event.data)
             
         elif event.event_type == EventType.PROGRESS:
             progress = event.progress if event.progress is not None else 0
