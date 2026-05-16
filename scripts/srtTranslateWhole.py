@@ -1701,6 +1701,7 @@ def translate_srt_content_structured(content, context=None, provider="openai", m
     _result_lock = threading.Lock()
     _done_subs   = [0]               # subtitles successfully stored
     _fallback_set = set()            # indices where original text was kept
+    _start_time = time.time()        # wall-clock start for duration reporting
     _stats = {                       # process counters for final summary
         'api_calls':       0,        # successful API calls
         'api_failures':    0,        # failed API calls
@@ -1975,6 +1976,7 @@ def translate_srt_content_structured(content, context=None, provider="openai", m
     summary_text = "\n".join(lines)
     _cost = ((in_tok / 1_000_000 * price_input + out_tok / 1_000_000 * price_output)
              if (price_input > 0 or price_output > 0) else None)
+    _duration = time.time() - _start_time
     log_output(summary_text, "", "info",
                data={
                    "total_subtitles":  total,
@@ -1991,6 +1993,11 @@ def translate_srt_content_structured(content, context=None, provider="openai", m
                    "input_tokens":     in_tok,
                    "output_tokens":    out_tok,
                    "cost_usd":         _cost,
+                   "price_input":      price_input,
+                   "price_output":     price_output,
+                   "duration_seconds": _duration,
+                   "provider":         provider,
+                   "model":            model or "",
                })
 
     return _reconstruct_srt(records, translated_texts)

@@ -126,6 +126,58 @@ _ID_TO_DISPLAY["lm_studio"] = "LM Studio"
 
 # ── Dialog ────────────────────────────────────────────────────────────────────
 
+# Per-provider default model lists (mirrors stage_configurators.py)
+_PROVIDER_MODELS = {
+    "OpenAI":      ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+    "Claude":      ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001",
+                    "claude-opus-4-5-20251101"],
+    "OpenRouter":  ["anthropic/claude-sonnet-4-5-20250929",
+                    "anthropic/claude-haiku-4-5-20251001",
+                    "openai/gpt-4o", "openai/gpt-4o-mini",
+                    "google/gemini-pro-1.5",
+                    "meta-llama/llama-3.1-405b-instruct"],
+    "xAI":         ["grok-2-latest", "grok-2-mini-latest", "grok-beta"],
+    "Mistral":     ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
+    "Groq":        ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+    "DeepSeek":    ["deepseek-chat", "deepseek-reasoner"],
+    "Kimi":        ["moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
+    "Gemini":      ["gemini-2.0-flash", "gemini-2.0-flash-lite",
+                    "gemini-1.5-pro", "gemini-1.5-flash"],
+    "Z.ai":        ["glm-4.7", "glm-5", "glm-4.5-air", "glm-4-flash"],
+    "LM Studio":   ["Local Model (LM Studio)"],
+}
+
+_PROVIDER_KEY_PLACEHOLDER = {
+    "OpenAI":     "OpenAI API key",
+    "Claude":     "Anthropic API key",
+    "OpenRouter": "OpenRouter API key",
+    "xAI":        "xAI API key",
+    "Mistral":    "Mistral API key",
+    "Groq":       "Groq API key",
+    "DeepSeek":   "DeepSeek API key",
+    "Kimi":       "Kimi (Moonshot) API key",
+    "Gemini":     "Google Gemini API key (AIza...)",
+    "Z.ai":       "Z.ai API key",
+    "LM Studio":  "Optional: API key for custom endpoint",
+}
+
+# Settings provider key used to look up API key / default model / custom models
+# Must match the keys used in stage_configurators._update_model_options
+_DISPLAY_TO_SETTINGS_KEY = {
+    "OpenAI":     "openai",
+    "Claude":     "anthropic",   # stored under 'anthropic' in settings
+    "OpenRouter": "openrouter",
+    "xAI":        "xai",
+    "Mistral":    "mistral",
+    "Groq":       "groq",
+    "DeepSeek":   "deepseek",
+    "Kimi":       "moonshot",
+    "Gemini":     "gemini",
+    "Z.ai":       "zai",
+    "LM Studio":  "lm_studio",
+}
+
+
 class CalibrationDialog(QDialog):
     """
     Modal dialog for calibrating AI model settings.
@@ -145,10 +197,11 @@ class CalibrationDialog(QDialog):
 
     def __init__(
         self,
-        model:    str = "",
-        provider: str = "",
-        api_key:  str = "",
-        base_url: str = "",
+        model:          str = "",
+        provider:       str = "",
+        api_key:        str = "",
+        base_url:       str = "",
+        config_manager=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -157,6 +210,7 @@ class CalibrationDialog(QDialog):
         self._init_provider = provider
         self._init_api_key  = api_key
         self._init_base_url = base_url
+        self._config_manager = config_manager
 
         self._worker: CalibrationWorker | None = None
 
@@ -191,7 +245,36 @@ class CalibrationDialog(QDialog):
         self._stack.addWidget(self._build_running_page())    # index 1
         self._stack.addWidget(self._build_results_page())    # index 2
 
-        # ── Tab 2: Documentation ─────────────────────────────────────────────
+        # ── Tab 2: Raw Log ───────────────────────────────────────────────────
+        raw_widget = QWidget()
+        tabs.addTab(raw_widget, "  Raw Log  ")
+        raw_layout = QVBoxLayout(raw_widget)
+        raw_layout.setContentsMargins(14, 14, 14, 14)
+        raw_layout.setSpacing(6)
+
+        raw_header = QHBoxLayout()
+        raw_title = QLabel("API request / response details")
+        raw_title.setStyleSheet("color: #888; font-size: 10pt; font-style: italic;")
+        raw_header.addWidget(raw_title)
+        raw_header.addStretch()
+        clear_raw_btn = QPushButton("Clear")
+        clear_raw_btn.setMaximumWidth(60)
+        clear_raw_btn.setFixedHeight(22)
+        raw_header.addWidget(clear_raw_btn)
+        raw_layout.addLayout(raw_header)
+
+        self._raw_log_edit = QTextEdit()
+        self._raw_log_edit.setReadOnly(True)
+        raw_mono = QFont("Courier New", 9)
+        raw_mono.setStyleHint(QFont.Monospace)
+        self._raw_log_edit.setFont(raw_mono)
+        self._raw_log_edit.setStyleSheet(
+            "background: #060610; color: #aaa; border-radius: 4px;"
+        )
+        raw_layout.addWidget(self._raw_log_edit)
+        clear_raw_btn.clicked.connect(self._raw_log_edit.clear)
+
+        # ── Tab 3: Documentation ─────────────────────────────────────────────
         doc_widget = QWidget()
         tabs.addTab(doc_widget, "  Documentation  ")
         doc_layout = QVBoxLayout(doc_widget)
@@ -216,17 +299,19 @@ class CalibrationDialog(QDialog):
 
         self.provider_combo = QComboBox()
         self.provider_combo.addItems(_DISPLAY_PROVIDERS)
+        self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
         form.addRow("Provider:", self.provider_combo)
 
-        self.model_edit = QLineEdit()
-        self.model_edit.setPlaceholderText("e.g. gpt-4o-mini")
-        form.addRow("Model:", self.model_edit)
+        self.model_combo = QComboBox()
+        self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.model_combo.currentTextChanged.connect(self._refresh_cost_estimate)
+        form.addRow("Model:", self.model_combo)
 
         api_row = QHBoxLayout()
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.Password)
         self.api_key_edit.setPlaceholderText(
-            "API key — leave blank to use environment variable"
+            "Loaded from Settings — enter here to override"
         )
         self._show_key_btn = QPushButton("Show")
         self._show_key_btn.setMaximumWidth(56)
@@ -418,18 +503,111 @@ class CalibrationDialog(QDialog):
             display = _ID_TO_DISPLAY.get(self._init_provider.lower(), self._init_provider)
             idx = self.provider_combo.findText(display, Qt.MatchFixedString)
             if idx >= 0:
+                # Block signals so _on_provider_changed doesn't fire yet — we call
+                # _populate_models explicitly below, avoiding a double-populate.
+                self.provider_combo.blockSignals(True)
                 self.provider_combo.setCurrentIndex(idx)
+                self.provider_combo.blockSignals(False)
 
-        self.model_edit.setText(self._init_model)
-        self.api_key_edit.setText(self._init_api_key)
+        # Always populate models for whichever provider is now current.
+        current_provider = self.provider_combo.currentText()
+        self._populate_models(current_provider)
+        self.api_key_edit.setPlaceholderText(
+            _PROVIDER_KEY_PLACEHOLDER.get(current_provider, "API key")
+        )
+
+        # Select the pre-filled model, overriding the settings default if provided
+        if self._init_model:
+            idx = self.model_combo.findText(self._init_model, Qt.MatchFixedString)
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+            else:
+                self.model_combo.insertItem(0, self._init_model)
+                self.model_combo.setCurrentIndex(0)
+
+        # API key: load from settings; _init_api_key is shown only as a manual override
+        settings_key, _, _, _ = self._load_provider_settings(current_provider)
+        self.api_key_edit.setText(settings_key)
         self.base_url_edit.setText(self._init_base_url)
 
         self._refresh_cost_estimate()
-        self.model_edit.textChanged.connect(lambda _: self._refresh_cost_estimate())
 
-    def _refresh_cost_estimate(self) -> None:
+    def _load_provider_settings(self, provider_display: str) -> tuple:
+        """Return (api_key, default_model, selected_models, custom_models) from config."""
+        if not self._config_manager:
+            return "", "", [], []
+        settings_key = _DISPLAY_TO_SETTINGS_KEY.get(provider_display, "")
+        if not settings_key:
+            return "", "", [], []
+        try:
+            prov = (
+                self._config_manager.get_settings()
+                .get("translators", {})
+                .get(settings_key, {})
+            )
+            return (
+                prov.get("api_key", "").strip(),
+                prov.get("default_model", "").strip(),
+                prov.get("selected_models", []),
+                prov.get("custom_models", []),
+            )
+        except Exception:
+            return "", "", [], []
+
+    def _on_provider_changed(self, provider_display: str) -> None:
+        """Repopulate the model list and reload API key when the provider changes."""
+        self._populate_models(provider_display)
+        self.api_key_edit.setPlaceholderText(
+            _PROVIDER_KEY_PLACEHOLDER.get(provider_display, "API key")
+        )
+        api_key, _, _, _ = self._load_provider_settings(provider_display)
+        self.api_key_edit.setText(api_key)
+
+    def _populate_models(self, provider_display: str) -> None:
+        """Fill model_combo with built-in + custom models for *provider_display*
+        and select the configured default model."""
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+
+        _, default_model, selected_models, custom_models = (
+            self._load_provider_settings(provider_display)
+        )
+
+        builtin = selected_models if selected_models else list(
+            _PROVIDER_MODELS.get(provider_display, [])
+        )
+
+        self.model_combo.addItems(builtin)
+        if custom_models:
+            self.model_combo.insertSeparator(len(builtin))
+            for m in custom_models:
+                self.model_combo.addItem(f"★ {m}")
+
+        # Select the configured default model, falling back to the first item
+        if default_model:
+            idx = self.model_combo.findText(default_model, Qt.MatchFixedString)
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+            else:
+                # Default model not in list — add it at the top
+                self.model_combo.insertItem(0, default_model)
+                self.model_combo.setCurrentIndex(0)
+        elif self.model_combo.count() > 0:
+            self.model_combo.setCurrentIndex(0)
+
+        self.model_combo.blockSignals(False)
+        self._refresh_cost_estimate()
+
+    def _get_model_name(self) -> str:
+        """Return the current model name, stripping the ★ prefix if present."""
+        text = self.model_combo.currentText().strip()
+        if text.startswith("★ "):
+            text = text[2:].strip()
+        return text
+
+    def _refresh_cost_estimate(self, *_) -> None:
         """Update the estimated calibration cost label using stored model prices."""
-        model = self.model_edit.text().strip()
+        model = self._get_model_name()
         if not model:
             self._cost_label.setText(
                 f"Calibration runs {len(CHUNK_SIZES)} chunk probes + "
@@ -475,13 +653,17 @@ class CalibrationDialog(QDialog):
         self._show_key_btn.setText("Hide" if show else "Show")
 
     def _start(self) -> None:
-        model = self.model_edit.text().strip()
+        model = self._get_model_name()
         if not model:
             QMessageBox.warning(self, "Missing Model", "Please enter a model name.")
             return
 
-        provider = _DISPLAY_TO_ID.get(self.provider_combo.currentText(), "openai")
+        provider_display = self.provider_combo.currentText()
+        provider = _DISPLAY_TO_ID.get(provider_display, "openai")
         api_key  = self.api_key_edit.text().strip()
+        # If the field is empty, fall back to the key stored in Settings
+        if not api_key:
+            api_key, _, _, _ = self._load_provider_settings(provider_display)
         base_url = self.base_url_edit.text().strip()
 
         # Reset running page
@@ -506,6 +688,7 @@ class CalibrationDialog(QDialog):
         self._worker.progress.connect(self._progress_bar.setValue)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
+        self._worker.raw_log.connect(self._on_raw_log)
         self._worker.start()
 
     def _stop(self) -> None:
@@ -527,7 +710,7 @@ class CalibrationDialog(QDialog):
         self._append_log(f"   {text}", color)
 
     def _on_finished(self, results: dict) -> None:
-        model   = self.model_edit.text().strip()
+        model   = self._get_model_name()
         chunk   = results["max_chunk_size"]
         workers = results["max_workers"]
         latency = results.get("latency_avg_ms", 0.0)
@@ -554,6 +737,24 @@ class CalibrationDialog(QDialog):
 
         self._stack.setCurrentIndex(2)
         self.calibration_saved.emit(model)
+
+    def _on_raw_log(self, label: str, content: str) -> None:
+        safe_label = (
+            label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        safe_content = (
+            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\n", "<br>").replace(" ", "&nbsp;")
+        )
+        color = "#ff6b6b" if "ERROR" in label or "EXCEPTION" in label else (
+            "#ffa726" if "strip" in label or "wrong type" in label else "#4dabf7"
+        )
+        self._raw_log_edit.append(
+            f'<span style="color:{color};font-weight:bold;">─── {safe_label} ───</span><br>'
+            f'<span style="color:#ccc;">{safe_content}</span><br>'
+        )
+        self._raw_log_edit.moveCursor(QTextCursor.End)
+        self._raw_log_edit.ensureCursorVisible()
 
     def _on_error(self, error_msg: str) -> None:
         self._append_log(f"\n✗  Error: {error_msg}", "#ff6b6b")

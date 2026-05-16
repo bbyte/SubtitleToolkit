@@ -774,10 +774,11 @@ class MainWindow(QMainWindow):
 
         translate_settings = self.stage_configurators.get_translate_config()
         dialog = CalibrationDialog(
-            model    = translate_settings.get("model", ""),
-            provider = translate_settings.get("provider", ""),
-            api_key  = translate_settings.get("api_key", ""),
-            parent   = self,
+            model          = translate_settings.get("model", ""),
+            provider       = translate_settings.get("provider", ""),
+            api_key        = translate_settings.get("api_key", ""),
+            config_manager = self.config_manager,
+            parent         = self,
         )
         dialog.calibration_saved.connect(self._on_calibration_saved)
         dialog.show()

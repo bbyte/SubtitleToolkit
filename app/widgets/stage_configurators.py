@@ -611,9 +611,7 @@ class TranslateConfigWidget(QFrame):
         self.model_combo.currentTextChanged.connect(lambda _: self._update_cal_status())
         self.api_key_edit.textChanged.connect(lambda: self.config_changed.emit())
         self.chunk_size_spin.valueChanged.connect(lambda: self.config_changed.emit())
-        self.chunk_size_spin.valueChanged.connect(lambda _: self._save_model_settings())
         self.workers_spin.valueChanged.connect(lambda: self.config_changed.emit())
-        self.workers_spin.valueChanged.connect(lambda _: self._save_model_settings())
         self.price_input_spin.valueChanged.connect(lambda: self.config_changed.emit())
         self.price_input_spin.valueChanged.connect(lambda _: self._save_model_settings())
         self.price_input_spin.valueChanged.connect(lambda _: self._refresh_estimate())
@@ -857,7 +855,13 @@ class TranslateConfigWidget(QFrame):
             self._loading_model_settings = False
 
     def _save_model_settings(self) -> None:
-        """Save current per-model settings to QSettings (no-op while loading)."""
+        """Save per-model price settings to QSettings (no-op while loading).
+
+        Chunk size and worker count are intentionally NOT saved here — they are
+        written exclusively by the calibration store so that calibrated values
+        remain the persistent default.  User adjustments to those spinboxes are
+        session-only and reset when a different model is selected.
+        """
         if self._loading_model_settings:
             return
         model = self.model_combo.currentText()
@@ -868,8 +872,6 @@ class TranslateConfigWidget(QFrame):
 
         qs = QSettings("SubtitleToolkit", "ModelProfiles")
         qs.beginGroup(self._get_model_key(model))
-        qs.setValue("chunk_size",   self.chunk_size_spin.value())
-        qs.setValue("max_workers",  self.workers_spin.value())
         qs.setValue("price_input",  self.price_input_spin.value())
         qs.setValue("price_output", self.price_output_spin.value())
         qs.endGroup()
@@ -1038,10 +1040,11 @@ class TranslateConfigWidget(QFrame):
         provider = provider_mapping.get(engine_raw, engine_raw)
 
         dialog = CalibrationDialog(
-            model    = model,
-            provider = provider,
-            api_key  = self.api_key_edit.text(),
-            parent   = self,
+            model          = model,
+            provider       = provider,
+            api_key        = self.api_key_edit.text(),
+            config_manager = self._config_manager,
+            parent         = self,
         )
         dialog.calibration_saved.connect(lambda _: self._update_cal_status())
         dialog.exec()

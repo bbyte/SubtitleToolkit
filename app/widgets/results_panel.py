@@ -444,79 +444,131 @@ class ResultsPanel(QFrame):
             except Exception as e:
                 print(f"Failed to export results: {str(e)}")
     
+    @staticmethod
+    def _fmt_duration(seconds: float) -> str:
+        """Format a duration in seconds to a human-readable string."""
+        seconds = int(seconds)
+        h, rem = divmod(seconds, 3600)
+        m, s   = divmod(rem, 60)
+        if h:
+            return f"{h}h {m:02d}m {s:02d}s"
+        if m:
+            return f"{m}m {s:02d}s"
+        return f"{s}s"
+
     def show_translate_stats(self, data: dict) -> None:
         """Display translation statistics in the Summary tab and switch to it."""
-        total = data.get('total_subtitles', '?')
-        chunk_start = data.get('chunk_size_start')
-        chunk_final = data.get('chunk_size_final')
-        reductions = data.get('size_reductions', 0)
-        ok = data.get('api_calls_ok', 0)
-        failed = data.get('api_calls_failed', 0)
-        splits = data.get('splits', 0)
-        pre_splits = data.get('pre_splits', 0)
-        in_tok = data.get('input_tokens', 0)
-        out_tok = data.get('output_tokens', 0)
-        cost = data.get('cost_usd')
-        fallback_count = data.get('fallback_count', 0)
-        recovered = data.get('recovered', 0)
-        still_original = data.get('still_original', 0)
+        total        = data.get('total_subtitles', 0)
+        chunk_start  = data.get('chunk_size_start')
+        chunk_final  = data.get('chunk_size_final')
+        reductions   = data.get('size_reductions', 0)
+        ok           = data.get('api_calls_ok', 0)
+        failed       = data.get('api_calls_failed', 0)
+        splits       = data.get('splits', 0)
+        pre_splits   = data.get('pre_splits', 0)
+        in_tok       = data.get('input_tokens', 0)
+        out_tok      = data.get('output_tokens', 0)
+        cost         = data.get('cost_usd')
+        price_in     = data.get('price_input', 0.0)
+        price_out    = data.get('price_output', 0.0)
+        duration     = data.get('duration_seconds')
+        provider     = data.get('provider', '')
+        model        = data.get('model', '')
+        fallback_count  = data.get('fallback_count', 0)
+        recovered       = data.get('recovered', 0)
+        still_original  = data.get('still_original', 0)
+
+        W = 52   # column width for the box
+
+        def row(label, value):
+            return f"  {label:<18}{value}"
 
         lines = [
-            "TRANSLATION STATISTICS",
-            "=" * 48,
-            f"  Subtitles   : {total} total",
+            "TRANSLATION COMPLETE",
+            "─" * W,
         ]
 
-        # Chunk size
+        # ── Model ─────────────────────────────────────────────────────────────
+        if provider:
+            lines.append(row("Provider:", provider.upper()))
+        if model:
+            lines.append(row("Model:", model))
+        if provider or model:
+            lines.append("")
+
+        # ── Time ──────────────────────────────────────────────────────────────
+        if duration is not None:
+            dur_str = self._fmt_duration(duration)
+            lines.append(row("Duration:", dur_str))
+
+            if isinstance(total, int) and total > 0 and duration > 0:
+                subs_per_min = total / (duration / 60)
+                lines.append(row("Throughput:", f"{subs_per_min:.1f} subtitles / min"))
+
+            if ok > 0 and duration > 0:
+                avg_call = duration / ok
+                lines.append(row("Avg API call:", f"{avg_call:.1f} s"))
+
+        # ── Volume ────────────────────────────────────────────────────────────
+        lines.append("")
+        lines.append(row("Subtitles:", f"{total}"))
+
         if chunk_start is not None and chunk_final is not None:
             if chunk_final < chunk_start:
-                lines.append(f"  Chunk size  : {chunk_start} → {chunk_final}  (reduced {reductions}×)")
+                lines.append(row("Chunk size:", f"{chunk_start} → {chunk_final}  ({reductions}× reduced)"))
             else:
-                lines.append(f"  Chunk size  : {chunk_start}")
+                lines.append(row("Chunk size:", f"{chunk_start}"))
 
-        # API calls
-        calls_str = f"{ok} ok"
+        calls_str = f"{ok} successful"
         if failed:
-            calls_str += f" + {failed} failed"
-        lines.append(f"  API calls   : {calls_str}")
+            calls_str += f",  {failed} failed"
+        lines.append(row("API calls:", calls_str))
 
-        # Splits
         if splits or pre_splits:
-            split_str = str(splits)
+            split_str = f"{splits} retried"
             if pre_splits:
-                split_str += f"  ({pre_splits} pre-split, no extra API call)"
-            lines.append(f"  Splits      : {split_str}")
+                split_str += f",  {pre_splits} pre-split"
+            lines.append(row("Splits:", split_str))
 
-        # Tokens
+        # ── Tokens & cost ─────────────────────────────────────────────────────
         if in_tok or out_tok:
-            lines.append(f"  Tokens      : {in_tok:,} in + {out_tok:,} out")
+            lines.append("")
+            lines.append(row("Input tokens:", f"{in_tok:,}"))
+            lines.append(row("Output tokens:", f"{out_tok:,}"))
+            lines.append(row("Total tokens:", f"{in_tok + out_tok:,}"))
 
-        # Cost
+            if price_in > 0 or price_out > 0:
+                cost_in  = in_tok  / 1_000_000 * price_in
+                cost_out = out_tok / 1_000_000 * price_out
+                lines.append(row("Input cost:", f"${cost_in:.4f}  (${price_in:.2f}/M tokens)"))
+                lines.append(row("Output cost:", f"${cost_out:.4f}  (${price_out:.2f}/M tokens)"))
+
         if cost is not None:
-            lines.append(f"  Cost        : ${cost:.4f} USD")
+            lines.append(row("Total cost:", f"${cost:.4f} USD"))
+            if isinstance(total, int) and total > 0:
+                lines.append(row("Cost / subtitle:", f"${cost / total:.6f}"))
 
-        # Completeness
+        # ── Completeness ──────────────────────────────────────────────────────
+        lines.append("")
         if fallback_count:
-            comp = (total - still_original) if isinstance(total, int) else '?'
-            comp_str = f"  Completeness: {comp}/{total}"
-            if recovered:
-                comp_str += f"  ({recovered} recovered by repair)"
+            translated = (total - still_original) if isinstance(total, int) else '?'
+            comp_val   = f"{translated}/{total}"
             if still_original:
-                comp_str += f"  — {still_original} kept original ⚠"
+                comp_val += f"  ⚠  {still_original} kept original"
             else:
-                comp_str += "  ✓"
-            lines.append(comp_str)
+                comp_val += "  ✓"
+            lines.append(row("Translated:", comp_val))
+            if recovered:
+                lines.append(row("Recovered:", f"{recovered} (by repair pass)"))
         else:
-            lines.append(f"  Completeness: {total}/{total}  ✓")
+            lines.append(row("Translated:", f"{total}/{total}  ✓"))
 
-        lines.append("=" * 48)
+        lines.append("─" * W)
 
         if failed or still_original:
-            lines.append("")
             lines.append("  ⚠  Issues detected — see Log tab for details.")
 
         self.summary_text.setPlainText("\n".join(lines))
-        # Auto-switch to the Summary tab so the user sees it immediately
         self.tab_widget.setCurrentWidget(self.summary_widget)
 
     def get_results_summary(self) -> Dict[str, int]:

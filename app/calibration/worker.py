@@ -21,6 +21,7 @@ Results are written to QSettings via ``app.calibration.store``.
 """
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Tuple
@@ -28,6 +29,21 @@ from typing import Any, Dict, List, Tuple
 from PySide6.QtCore import QThread, Signal
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+
+# Default base URLs for OpenAI-compatible providers that are NOT openai itself.
+# The calibration worker uses these when no explicit base_url is supplied.
+_PROVIDER_BASE_URLS: Dict[str, str] = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "xai":        "https://api.x.ai/v1",
+    "mistral":    "https://api.mistral.ai/v1",
+    "groq":       "https://api.groq.com/openai/v1",
+    "deepseek":   "https://api.deepseek.com",
+    "kimi":       "https://api.moonshot.cn/v1",
+    "moonshot":   "https://api.moonshot.cn/v1",
+    "gemini":     "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "zai":        "https://api.z.ai/api/paas/v4/",
+    "local":      "http://localhost:1234/v1",
+}
 
 CHUNK_SIZES:   List[int] = [5, 10, 20, 30, 50, 75, 100]
 WORKER_COUNTS: List[int] = [1, 2, 3, 4, 5]
@@ -159,6 +175,7 @@ class CalibrationWorker(QThread):
     progress      = Signal(int)        # completed probe count
     finished      = Signal(dict)       # final results
     error         = Signal(str)        # fatal error message
+    raw_log       = Signal(str, str)   # label, content (for debug tab)
 
     def __init__(
         self,
@@ -172,7 +189,8 @@ class CalibrationWorker(QThread):
         self.provider  = provider.lower().strip()
         self.model     = model.strip()
         self.api_key   = api_key.strip()
-        self.base_url  = base_url.strip()
+        # Use the supplied base_url, or fall back to the known default for this provider
+        self.base_url  = base_url.strip() or _PROVIDER_BASE_URLS.get(self.provider, "")
         self._stop     = False
         self._done     = 0   # completed probes
 
@@ -212,9 +230,17 @@ class CalibrationWorker(QThread):
                     f"✓  Chunk {size:>3}  — OK  ({result['latency_ms']:.0f} ms)",
                 )
             else:
+                reason = result["reason"]
+                # Auth errors are fatal — abort immediately so we don't save bad defaults
+                if "authentication" in reason or "auth" in reason:
+                    self.error.emit(
+                        f"Authentication failed (401): {reason}\n\n"
+                        "Check that your API key is correct for this provider."
+                    )
+                    return
                 self.log_message.emit(
                     "warning",
-                    f"✗  Chunk {size:>3}  — {result['reason']}  (stopping here)",
+                    f"✗  Chunk {size:>3}  — {reason}  (stopping here)",
                 )
                 # Skip remaining larger sizes
                 self._done += len(CHUNK_SIZES) - CHUNK_SIZES.index(size) - 1
@@ -222,6 +248,14 @@ class CalibrationWorker(QThread):
                 break
 
             time.sleep(0.4)   # brief pause between probes
+
+        if not latencies:
+            self.log_message.emit(
+                "warning",
+                "⚠  All chunk probes failed — model may wrap JSON in code fences "
+                "(fixed automatically) or API key / endpoint may be invalid. "
+                "Re-run calibration; if it still fails check the API key.",
+            )
 
         # ── Phase 2: concurrent workers ───────────────────────────────────────
         self.phase_started.emit("workers", "Phase 2 — Testing concurrent workers")
@@ -242,6 +276,12 @@ class CalibrationWorker(QThread):
                 max_workers = n
                 self.log_message.emit("info", f"✓  Workers {n}  — OK")
             else:
+                if "authentication" in reason or "auth" in reason:
+                    self.error.emit(
+                        f"Authentication failed (401): {reason}\n\n"
+                        "Check that your API key is correct for this provider."
+                    )
+                    return
                 self.log_message.emit("warning", f"✗  Workers {n}  — {reason}  (stopping here)")
                 self._done += len(WORKER_COUNTS) - WORKER_COUNTS.index(n) - 1
                 self.progress.emit(self._done)
@@ -273,24 +313,56 @@ class CalibrationWorker(QThread):
         try:
             raw = self._call_api(payload)
         except Exception as exc:
+            reason = self._classify_error(exc)
+            self.raw_log.emit(
+                f"chunk_{chunk_size} — EXCEPTION",
+                f"Error: {exc}",
+            )
             return {
                 "success":    False,
-                "reason":     self._classify_error(exc),
+                "reason":     reason,
                 "latency_ms": (time.time() - t0) * 1000,
             }
 
         latency_ms = (time.time() - t0) * 1000
 
+        # Emit raw response before any processing
+        preview = raw[:800] + ("…" if len(raw) > 800 else "")
+        self.raw_log.emit(
+            f"chunk_{chunk_size} — raw response ({len(raw)} chars, {latency_ms:.0f} ms)",
+            preview,
+        )
+
+        stripped = self._strip_markdown_fence(raw)
+        if stripped != raw.strip():
+            self.raw_log.emit(
+                f"chunk_{chunk_size} — after fence strip ({len(stripped)} chars)",
+                stripped[:400] + ("…" if len(stripped) > 400 else ""),
+            )
+        raw = stripped
+
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
+            self.raw_log.emit(
+                f"chunk_{chunk_size} — JSON parse ERROR",
+                f"{exc}\n\nFirst 200 chars of input:\n{raw[:200]}",
+            )
             return {"success": False, "reason": f"invalid JSON: {str(exc)[:60]}", "latency_ms": latency_ms}
 
         if not isinstance(parsed, dict):
+            self.raw_log.emit(
+                f"chunk_{chunk_size} — wrong type",
+                f"Expected dict, got {type(parsed).__name__}: {str(parsed)[:200]}",
+            )
             return {"success": False, "reason": "response is not a JSON object", "latency_ms": latency_ms}
 
         expected = len(payload)
         actual   = len(parsed)
+        self.raw_log.emit(
+            f"chunk_{chunk_size} — parsed OK",
+            f"Keys returned: {actual}/{expected}  |  Keys: {list(parsed.keys())[:10]}",
+        )
         if actual < expected * 0.9:
             return {
                 "success":    False,
@@ -321,6 +393,14 @@ class CalibrationWorker(QThread):
         return True, "ok"
 
     # ── API layer ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _strip_markdown_fence(text: str) -> str:
+        """Strip ```json … ``` or ``` … ``` code fences that some models add."""
+        text = text.strip()
+        text = re.sub(r'^```[a-zA-Z]*\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        return text.strip()
 
     @staticmethod
     def _classify_error(exc: Exception) -> str:
