@@ -118,6 +118,7 @@ class TranslateConfig:
 
     # Provider credentials (from settings)
     api_key: str = ""
+    auth_type: str = "api_key"      # "api_key" or "bearer_token"
     base_url: Optional[str] = None  # For LM Studio
 
     # Processing options
@@ -179,7 +180,7 @@ class TranslateConfig:
         if self.provider not in valid_providers:
             return False, f"Invalid provider: {self.provider}. Must be one of {valid_providers}"
 
-        # Providers that need an API key
+        # Providers that need a credential (API key or bearer token)
         _keyed_providers = {"openai", "claude", "anthropic", "openrouter",
                             "xai", "mistral", "groq", "deepseek", "moonshot", "gemini", "zai"}
         if self.provider in _keyed_providers:
@@ -192,22 +193,24 @@ class TranslateConfig:
                     "gemini": "Gemini", "zai": "Z.ai",
                 }
                 provider_display = _display.get(self.provider, self.provider.upper())
-                return False, (f"API key required for {provider_display} provider. "
-                               f"Please set the API key in Settings > Translators > {provider_display}.")
+                cred_label = "Bearer token" if self.auth_type == "bearer_token" else "API key"
+                return False, (f"{cred_label} required for {provider_display} provider. "
+                               f"Please set it in Settings > Translators > {provider_display}.")
 
-            # Validate key format only for providers with known prefixes
-            if self.provider in ["claude", "anthropic"]:
-                if not self.api_key.startswith("sk-ant-"):
-                    return False, ("Invalid Claude API key format. Claude API keys should start with 'sk-ant-'. "
-                                   "Please check your API key in Settings > Translators > Claude.")
-            elif self.provider == "openai":
-                if not self.api_key.startswith("sk-"):
-                    return False, ("Invalid OpenAI API key format. OpenAI API keys should start with 'sk-'. "
-                                   "Please check your API key in Settings > Translators > OpenAI.")
-            elif self.provider == "openrouter":
-                if not self.api_key.startswith("sk-or-"):
-                    return False, ("Invalid OpenRouter API key format. OpenRouter API keys should start with 'sk-or-'. "
-                                   "Please check your API key in Settings > Translators > OpenRouter.")
+            # Format validation only applies to static API keys, not OAuth bearer tokens
+            if self.auth_type != "bearer_token":
+                if self.provider in ["claude", "anthropic"]:
+                    if not self.api_key.startswith("sk-ant-"):
+                        return False, ("Invalid Claude API key format. Claude API keys should start with 'sk-ant-'. "
+                                       "Please check your API key in Settings > Translators > Claude.")
+                elif self.provider == "openai":
+                    if not self.api_key.startswith("sk-"):
+                        return False, ("Invalid OpenAI API key format. OpenAI API keys should start with 'sk-'. "
+                                       "Please check your API key in Settings > Translators > OpenAI.")
+                elif self.provider == "openrouter":
+                    if not self.api_key.startswith("sk-or-"):
+                        return False, ("Invalid OpenRouter API key format. OpenRouter API keys should start with 'sk-or-'. "
+                                       "Please check your API key in Settings > Translators > OpenRouter.")
 
         # Validate model is specified
         if not self.model:

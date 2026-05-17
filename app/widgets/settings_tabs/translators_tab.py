@@ -22,16 +22,18 @@ from app.config import ConfigManager, ValidationResult, TranslationProvider, Set
 
 class ConnectionTestWorker(QObject):
     """Worker for testing API connections."""
-    
+
     test_complete = Signal(str, bool, str)  # provider, success, message
-    
-    def __init__(self, provider: str, api_key: str, model: str, base_url: str = ""):
+
+    def __init__(self, provider: str, api_key: str, model: str, base_url: str = "",
+                 auth_type: str = "api_key"):
         super().__init__()
         self.provider = provider
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
-    
+        self.auth_type = auth_type
+
     def run(self):
         """Test the API connection."""
         try:
@@ -39,20 +41,22 @@ class ConnectionTestWorker(QObject):
             self.test_complete.emit(self.provider, success, message)
         except Exception as e:
             self.test_complete.emit(self.provider, False, str(e))
-    
+
     def _test_connection(self) -> tuple[bool, str]:
         """Test the actual API connection."""
-        # This is a placeholder - actual implementation would test the APIs
-        # For now, just validate that required fields are filled
-        
         if not self.api_key:
-            return False, "API key is required"
-        
+            label = "Bearer token" if self.auth_type == "bearer_token" else "API key"
+            return False, f"{label} is required"
+
+        # Bearer tokens bypass format validation — any non-empty value is accepted
+        if self.auth_type == "bearer_token":
+            return True, "Bearer token saved (format not validated)"
+
         if self.provider == TranslationProvider.OPENAI.value:
             if len(self.api_key) < 10 or not self.api_key.startswith(('sk-', 'pk-')):
                 return False, "Invalid OpenAI API key format"
             return True, "Connection successful (simulated)"
-            
+
         elif self.provider == TranslationProvider.ANTHROPIC.value:
             if len(self.api_key) < 10 or not self.api_key.startswith('sk-'):
                 return False, "Invalid Anthropic API key format"
@@ -223,6 +227,8 @@ class ProviderConfigWidget(QWidget):
         self._fetch_status_label = None
         self._sel_count_label = None
         self._selection_updating = False
+        self._auth_type_combo = None    # QComboBox for auth method (None for LM Studio)
+        self._api_key_form_label = None # QLabel ref so we can update the row label
 
         self._init_ui()
         self._connect_signals()
@@ -296,11 +302,25 @@ class ProviderConfigWidget(QWidget):
         form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         form_layout.setLabelAlignment(Qt.AlignRight)
         
-        # API Key
+        # Auth method selector (LM Studio has no real auth so skip it)
+        if self.provider != TranslationProvider.LM_STUDIO:
+            self._auth_type_combo = QComboBox()
+            self._auth_type_combo.addItem("API Key", "api_key")
+            self._auth_type_combo.addItem("Bearer Token (OAuth)", "bearer_token")
+            self._auth_type_combo.setToolTip(
+                "API Key: static key from your provider's dashboard (default).\n"
+                "Bearer Token (OAuth): short-lived access token obtained via an OAuth flow "
+                "(e.g. Google ADC, Azure AD, or a provider's OAuth app)."
+            )
+            self._auth_type_combo.currentIndexChanged.connect(self._on_auth_type_changed)
+            form_layout.addRow("Auth Method:", self._auth_type_combo)
+
+        # API Key / Bearer Token (label updated dynamically by _on_auth_type_changed)
+        self._api_key_form_label = QLabel("API Key:")
         self._widgets['api_key'] = SecureLineEdit()
         self._widgets['api_key'].setPlaceholderText(self._get_api_key_placeholder())
         self._widgets['api_key'].setMinimumWidth(350)
-        form_layout.addRow("API Key:", self._widgets['api_key'])
+        form_layout.addRow(self._api_key_form_label, self._widgets['api_key'])
         
         # Base URL (for LM Studio)
         if self.provider == TranslationProvider.LM_STUDIO:
@@ -807,11 +827,15 @@ class ProviderConfigWidget(QWidget):
         api_key = self._widgets['api_key'].text()
         model = self._widgets['default_model'].currentText()
         base_url = self._widgets.get('base_url', QLineEdit()).text()
-        
+        auth_type = (
+            self._auth_type_combo.currentData()
+            if self._auth_type_combo is not None else "api_key"
+        )
+
         # Create test worker
         self._test_thread = QThread()
         self._test_worker = ConnectionTestWorker(
-            self.provider.value, api_key, model, base_url
+            self.provider.value, api_key, model, base_url, auth_type
         )
         self._test_worker.moveToThread(self._test_thread)
         
@@ -845,6 +869,19 @@ class ProviderConfigWidget(QWidget):
         # Hide result after 5 seconds
         QTimer.singleShot(5000, lambda: self.test_result.setVisible(False))
     
+    def _on_auth_type_changed(self, index: int):
+        """Update the credential row label and placeholder when auth method changes."""
+        is_token = (index == 1)
+        if self._api_key_form_label is not None:
+            self._api_key_form_label.setText("Bearer Token:" if is_token else "API Key:")
+        if 'api_key' in self._widgets:
+            placeholder = (
+                "Paste your OAuth / Bearer access token here"
+                if is_token else self._get_api_key_placeholder()
+            )
+            self._widgets['api_key'].setPlaceholderText(placeholder)
+        self.settings_changed.emit()
+
     def _get_provider_name(self) -> str:
         """Get display name for provider."""
         names = {
@@ -940,6 +977,16 @@ class ProviderConfigWidget(QWidget):
                     widget.setValue(int(value))
                 elif isinstance(widget, QDoubleSpinBox):
                     widget.setValue(float(value))
+
+        # Auth type + credential — must run after the generic loop so it wins
+        if self._auth_type_combo is not None:
+            auth_type = settings.get('auth_type', 'api_key')
+            idx = 1 if auth_type == 'bearer_token' else 0
+            self._auth_type_combo.setCurrentIndex(idx)
+            self._on_auth_type_changed(idx)
+            # Load the credential that matches the active auth mode
+            if auth_type == 'bearer_token':
+                self._widgets['api_key'].setText(settings.get('bearer_token', ''))
     
     def get_settings(self) -> Dict[str, Any]:
         """Get settings from this provider widget."""
@@ -974,24 +1021,42 @@ class ProviderConfigWidget(QWidget):
             elif isinstance(widget, QDoubleSpinBox):
                 settings[key] = widget.value()
 
+        # Auth type + credential — save the credential under the right key
+        if self._auth_type_combo is not None:
+            auth_type = self._auth_type_combo.currentData()  # "api_key" or "bearer_token"
+            settings['auth_type'] = auth_type
+            credential = settings.pop('api_key', '')
+            if auth_type == 'bearer_token':
+                settings['bearer_token'] = credential
+                settings['api_key'] = ''
+            else:
+                settings['api_key'] = credential
+                settings['bearer_token'] = ''
+
         return settings
     
     def validate_settings(self) -> ValidationResult:
         """Validate this provider's settings."""
         errors = []
         warnings = []
-        
-        api_key = self._widgets['api_key'].text()
-        if not api_key:
-            errors.append(f"API key is required for {self._get_provider_name()}")
-        
+
+        auth_type = (
+            self._auth_type_combo.currentData()
+            if self._auth_type_combo is not None else "api_key"
+        )
+        credential = self._widgets['api_key'].text()
+        cred_label = "Bearer token" if auth_type == "bearer_token" else "API key"
+
+        if not credential:
+            errors.append(f"{cred_label} is required for {self._get_provider_name()}")
+
         if self.provider == TranslationProvider.LM_STUDIO:
             base_url = self._widgets.get('base_url', QLineEdit()).text()
             if not base_url:
                 errors.append("Base URL is required for LM Studio")
             elif not base_url.startswith(('http://', 'https://')):
                 errors.append("Base URL must start with http:// or https://")
-        
+
         return ValidationResult(
             is_valid=len(errors) == 0,
             errors=errors,

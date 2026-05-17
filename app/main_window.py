@@ -1452,19 +1452,30 @@ class MainWindow(QMainWindow):
         self.log_panel.add_message("debug", f"translators_config keys: {list(translators_config.keys())}")
         self.log_panel.add_message("debug", f"Looking for provider: {provider} (settings key: {settings_provider})")
         self.log_panel.add_message("debug", f"provider_config keys: {list(provider_config.keys())}")
-        if 'api_key' in provider_config:
-            masked = f"{provider_config['api_key'][:8]}***" if len(provider_config['api_key']) > 8 else "***"
-            self.log_panel.add_message("debug", f"provider_config has api_key: {masked}")
+        auth_type = provider_config.get('auth_type', 'api_key')
 
-        # Load API key with fallback to environment variables and .env files
-        def get_api_key(provider: str) -> str:
-            # First check UI field (from stage configurator)
+        if 'api_key' in provider_config:
+            _raw = provider_config['api_key']
+            masked = f"{_raw[:8]}***" if len(_raw) > 8 else "***"
+            self.log_panel.add_message("debug", f"provider_config has api_key: {masked}")
+        if auth_type == 'bearer_token' and provider_config.get('bearer_token'):
+            self.log_panel.add_message("debug", "provider_config has bearer_token (auth_type=bearer_token)")
+
+        def get_credential(provider: str) -> str:
+            """Return the active credential: bearer token when configured, else API key."""
+            if auth_type == 'bearer_token':
+                token = provider_config.get('bearer_token', '').strip()
+                if token:
+                    self.log_panel.add_message("debug", "Using bearer token from Settings")
+                    return token
+                return ''
+
+            # API key path: UI field → Settings dialog → environment variable
             ui_api_key = translate_settings.get('api_key', '').strip()
             if ui_api_key:
                 self.log_panel.add_message("debug", "Using API key from UI field")
                 return ui_api_key
 
-            # Then check settings (from Settings dialog)
             settings_api_key = provider_config.get('api_key', '').strip()
             self.log_panel.add_message("debug", f"Settings API key empty: {not bool(settings_api_key)}")
             if settings_api_key:
@@ -1475,30 +1486,24 @@ class MainWindow(QMainWindow):
             import os
             from dotenv import load_dotenv
 
-            # Load .env file if it exists
             env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
             if os.path.exists(env_file):
                 load_dotenv(env_file)
 
-            if provider in ['claude', 'anthropic']:
-                env_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
-                if env_key:
-                    self.log_panel.add_message("debug", "Using API key from environment variable")
-                    return env_key
-            elif provider == 'openai':
-                env_key = os.getenv('OPENAI_API_KEY', '').strip()
-                if env_key:
-                    self.log_panel.add_message("debug", "Using API key from environment variable")
-                    return env_key
-            elif provider == 'openrouter':
-                env_key = os.getenv('OPENROUTER_API_KEY', '').strip()
+            _env_map = {
+                'claude': 'ANTHROPIC_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY',
+                'openai': 'OPENAI_API_KEY', 'openrouter': 'OPENROUTER_API_KEY',
+            }
+            env_var = _env_map.get(provider)
+            if env_var:
+                env_key = os.getenv(env_var, '').strip()
                 if env_key:
                     self.log_panel.add_message("debug", "Using API key from environment variable")
                     return env_key
 
             return ''
-        
-        api_key = get_api_key(provider)
+
+        api_key = get_credential(provider)
         
         # Debug: Show final API key (masked)
         if api_key:
@@ -1537,6 +1542,7 @@ class MainWindow(QMainWindow):
                     provider=provider,
                     model=translate_settings.get('model') or provider_config.get('default_model', ''),
                     api_key=api_key,
+                    auth_type=auth_type,
                     base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
                     max_workers=translate_settings.get('max_workers', 2),
                     chunk_size=translate_settings.get('chunk_size', 20),
@@ -1561,6 +1567,7 @@ class MainWindow(QMainWindow):
                 provider=provider,
                 model=translate_settings.get('model') or provider_config.get('default_model', ''),
                 api_key=api_key,
+                auth_type=auth_type,
                 base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
                 max_workers=translate_settings.get('max_workers', 2),
                 chunk_size=translate_settings.get('chunk_size', 20),
@@ -1581,6 +1588,7 @@ class MainWindow(QMainWindow):
             provider=provider,
             model=translate_settings.get('model') or provider_config.get('default_model', ''),
             api_key=api_key,
+            auth_type=auth_type,
             base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
             max_workers=translate_settings.get('max_workers', 2),
             chunk_size=translate_settings.get('chunk_size', 20),

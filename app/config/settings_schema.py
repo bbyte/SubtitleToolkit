@@ -75,6 +75,8 @@ class SettingsSchema:
                 "default_provider": TranslationProvider.ANTHROPIC.value,
                 "openai": {
                     "api_key": "",
+                    "auth_type": "api_key",   # "api_key" or "bearer_token"
+                    "bearer_token": "",
                     "default_model": "gpt-4o-mini",
                     "custom_models": [],  # User-added custom models
                     "selected_models": [],  # Models chosen to appear in main window
@@ -85,6 +87,8 @@ class SettingsSchema:
                 },
                 "anthropic": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "claude-haiku-4-5-20251001",
                     "custom_models": [],  # User-added custom models
                     "temperature": 0.3,
@@ -93,6 +97,8 @@ class SettingsSchema:
                 },
                 "openrouter": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "anthropic/claude-3.5-sonnet",
                     "custom_models": [],  # User-added custom models
                     "selected_models": [],  # Models chosen to appear in main window
@@ -112,6 +118,8 @@ class SettingsSchema:
                 },
                 "xai": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "grok-2-latest",
                     "custom_models": [],
                     "selected_models": [],
@@ -122,6 +130,8 @@ class SettingsSchema:
                 },
                 "mistral": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "mistral-large-latest",
                     "custom_models": [],
                     "selected_models": [],
@@ -132,6 +142,8 @@ class SettingsSchema:
                 },
                 "groq": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "llama-3.3-70b-versatile",
                     "custom_models": [],
                     "selected_models": [],
@@ -142,6 +154,8 @@ class SettingsSchema:
                 },
                 "deepseek": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "deepseek-chat",
                     "custom_models": [],
                     "selected_models": [],
@@ -152,6 +166,8 @@ class SettingsSchema:
                 },
                 "moonshot": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "moonshot-v1-128k",
                     "custom_models": [],
                     "selected_models": [],
@@ -162,6 +178,8 @@ class SettingsSchema:
                 },
                 "gemini": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "gemini-2.0-flash",
                     "custom_models": [],
                     "selected_models": [],
@@ -172,6 +190,8 @@ class SettingsSchema:
                 },
                 "zai": {
                     "api_key": "",
+                    "auth_type": "api_key",
+                    "bearer_token": "",
                     "default_model": "glm-4.7",
                     "custom_models": [],
                     "selected_models": [],
