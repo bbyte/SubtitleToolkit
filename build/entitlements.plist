@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow outgoing network connections for API calls -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    
+    <!-- Allow reading and writing user-selected files -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <!-- Allow access to downloads folder -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+    
+    <!-- Hardened runtime (required for notarization) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <false/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <false/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <false/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <false/>
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <false/>
+    
+    <!-- Allow app to inherit parent environment -->
+    <key>com.apple.security.inherit</key>
+    <true/>
+
+    <!-- Audio/Video access if needed -->
+    <key>com.apple.security.device.audio-input</key>
+    <false/>
+    <key>com.apple.security.device.camera</key>
+    <false/>
+    
+    <!-- Prevent automatic termination -->
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    
+    <!-- Sudden termination -->
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
+</dict>
+</plist>

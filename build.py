@@ -12,14 +12,14 @@ Usage:
     python build.py --no-archive     # Skip creating the final archive
 
 Output:
-    macOS  → dist/SubtitleToolkit-macos.zip  (contains SubtitleToolkit.app)
-    Linux  → dist/SubtitleToolkit-linux.tar.gz
-    Windows→ dist/SubtitleToolkit-windows.zip
+    macOS   -> dist/SubtitleToolkit-macos.zip  (contains SubtitleToolkit.app)
+    Linux   -> dist/SubtitleToolkit-linux.tar.gz
+    Windows -> dist/SubtitleToolkit-windows.zip
 
 To install on another machine:
-    macOS  : Unzip → drag SubtitleToolkit.app to Applications
-    Linux  : Untar → run SubtitleToolkit/SubtitleToolkit
-    Windows: Unzip → run SubtitleToolkit/SubtitleToolkit.exe
+    macOS  : Unzip -> drag SubtitleToolkit.app to Applications
+    Linux  : Untar -> run SubtitleToolkit/SubtitleToolkit
+    Windows: Unzip -> run SubtitleToolkit/SubtitleToolkit.exe
 """
 
 import sys
@@ -83,18 +83,18 @@ def compile_translations():
     ts_files = list(ts_dir.glob("*.ts"))
 
     if not ts_files:
-        print("  No .ts files found — skipping translation compilation.")
+        print("  No .ts files found - skipping translation compilation.")
         return
 
     lrelease = shutil.which("pyside6-lrelease") or shutil.which("lrelease")
     if not lrelease:
-        print("  pyside6-lrelease not found — skipping translation compilation.")
+        print("  pyside6-lrelease not found - skipping translation compilation.")
         print("  Existing .qm files will be used.")
         return
 
     for ts_file in ts_files:
         qm_file = ts_file.with_suffix(".qm")
-        print(f"  Compiling: {ts_file.name} → {qm_file.name}")
+        print(f"  Compiling: {ts_file.name} -> {qm_file.name}")
         run([lrelease, str(ts_file), "-qm", str(qm_file)], check=False)
 
 
@@ -157,7 +157,7 @@ def install_cli_into_bundle(platform_name: str, dist_dir: Path, cli_dist_dir: Pa
             print(f"  WARNING: CLI executable not found, skipping: {src.name}")
             continue
         dst = bundle_scripts / f"{name}{ext}"
-        print(f"  {src.name} → scripts/")
+        print(f"  {src.name} -> scripts/")
         shutil.copy2(src, dst)
         if platform_name != "windows":
             dst.chmod(0o755)
@@ -209,7 +209,7 @@ def main():
     dist_dir = PROJECT_ROOT / "dist"
     cli_dist_dir = dist_dir / "_cli_builds"
 
-    print(f"SubtitleToolkit build — platform: {platform_name}")
+    print(f"SubtitleToolkit build - platform: {platform_name}")
     print(f"Project root: {PROJECT_ROOT}\n")
 
     check_prerequisites()
@@ -249,14 +249,14 @@ def main():
         size_mb = archive.stat().st_size / (1024 * 1024)
         print(f"  Archive: {archive.name}  ({size_mb:.1f} MB)")
 
-    print("\n✓ Build complete!")
+    print("\nBuild complete!")
 
     # Print install instructions
     print("\nInstallation instructions:")
     if platform_name == "macos":
         print("  1. Unzip SubtitleToolkit-macos.zip")
         print("  2. Drag SubtitleToolkit.app to /Applications")
-        print("  3. On first launch: right-click → Open (to bypass Gatekeeper)")
+        print("  3. On first launch: right-click -> Open (to bypass Gatekeeper)")
     elif platform_name == "linux":
         print("  1. Extract SubtitleToolkit-linux.tar.gz")
         print("  2. Run: ./SubtitleToolkit/SubtitleToolkit")
