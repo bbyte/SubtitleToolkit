@@ -552,6 +552,117 @@ def repair_srt_timing(filepath):
     return {"fixed": fixed, "skipped": skipped, "error": None}
 
 
+def repair_srt_overlaps(filepath, gap_ms=50, min_duration_ms=100):
+    """
+    Fix overlapping subtitle timecodes in an SRT file in-place.
+
+    For every subtitle whose start time falls inside the previous subtitle's
+    display window, the *previous* subtitle's end time is trimmed to
+    (current_start - gap_ms).  If that would leave the previous subtitle with
+    a duration below min_duration_ms the end is set to
+    (prev_start + min_duration_ms) instead — a tiny residual overlap is
+    accepted rather than producing a zero-length or negative entry.
+
+    Returns:
+        dict: {fixed: int, skipped: int, error: str|None}
+    """
+    import re as _re
+
+    TIMECODE_RE = _re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})")
+    ARROW_RE    = _re.compile(
+        r"(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})"
+    )
+
+    def tc_to_ms(h, m, s, ms):
+        return ((int(h) * 3600) + (int(m) * 60) + int(s)) * 1000 + int(ms)
+
+    def ms_to_tc(total_ms):
+        total_ms = max(0, int(round(total_ms)))
+        ms = total_ms % 1000
+        s  = (total_ms // 1000) % 60
+        m  = (total_ms // 60000) % 60
+        h  = total_ms // 3600000
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as fh:
+            content = fh.read()
+    except OSError as exc:
+        return {"fixed": 0, "skipped": 0, "error": str(exc)}
+
+    blocks = _re.split(r'\n\n+', content.strip())
+    # parsed: list of [raw_block, start_ms, end_ms, (tc_line_idx, tc_match)]
+    # end_ms is mutable via the list so we can update it for the next iteration
+    parsed = []
+
+    for block in blocks:
+        lines = block.strip().splitlines()
+        if len(lines) < 2:
+            parsed.append([block, None, None, None])
+            continue
+        tc_line_idx = None
+        tc_match    = None
+        for li, line in enumerate(lines):
+            m = ARROW_RE.search(line)
+            if m:
+                tc_line_idx = li
+                tc_match    = m
+                break
+        if tc_match is None:
+            parsed.append([block, None, None, None])
+            continue
+        tcs = TIMECODE_RE.findall(tc_match.group(0))
+        if len(tcs) < 2:
+            parsed.append([block, None, None, None])
+            continue
+        parsed.append([block, tc_to_ms(*tcs[0]), tc_to_ms(*tcs[1]), (tc_line_idx, tc_match)])
+
+    fixed   = 0
+    skipped = 0
+
+    for i in range(1, len(parsed)):
+        prev = parsed[i - 1]
+        curr = parsed[i]
+
+        prev_start, prev_end = prev[1], prev[2]
+        curr_start           = curr[1]
+
+        if any(v is None for v in (prev_start, prev_end, curr_start)):
+            continue
+        if curr_start >= prev_end:
+            continue  # no overlap
+
+        # Trim previous subtitle's end time
+        new_end = curr_start - gap_ms
+        if new_end - prev_start < min_duration_ms:
+            # Protect minimum readability; residual tiny overlap is acceptable
+            new_end = prev_start + min_duration_ms
+
+        if new_end == prev_end:
+            continue  # already at the floor — nothing to change
+
+        # Rewrite the timecode line in the previous block
+        tc_line_idx, tc_match = prev[3]
+        lines = prev[0].strip().splitlines()
+        old_tc = lines[tc_line_idx]
+        new_tc = old_tc[:tc_match.start(2)] + ms_to_tc(new_end) + old_tc[tc_match.end(2):]
+        lines[tc_line_idx] = new_tc
+        prev[0]  = '\n'.join(lines)
+        prev[2]  = new_end   # update in-place so the next iteration sees the new end
+        fixed   += 1
+
+    if fixed == 0:
+        return {"fixed": 0, "skipped": skipped, "error": None}
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as fh:
+            fh.write('\n\n'.join(b[0] for b in parsed) + '\n')
+    except OSError as exc:
+        return {"fixed": 0, "skipped": 0, "error": str(exc)}
+
+    return {"fixed": fixed, "skipped": skipped, "error": None}
+
+
 # Global JSONL mode flag
 JSONL_MODE = False
 
@@ -2250,6 +2361,19 @@ def process_srt_file(input_file, output_file, context=None, provider="openai", m
             vr = validate_srt_file(output_file)
         elif repair_result["error"]:
             log_output(f"Timing repair failed: {repair_result['error']}", "⚠️  ", "warning")
+
+    # Auto-repair overlapping subtitles
+    _overlaps = vr["stats"].get("overlaps", 0) if vr["stats"] else 0
+    if _overlaps > 0:
+        overlap_result = repair_srt_overlaps(output_file)
+        if overlap_result["error"] is None and overlap_result["fixed"] > 0:
+            log_output(
+                f"Auto-repaired {overlap_result['fixed']} overlapping subtitle(s)",
+                "🔧 ", "warning"
+            )
+            vr = validate_srt_file(output_file)
+        elif overlap_result["error"]:
+            log_output(f"Overlap repair failed: {overlap_result['error']}", "⚠️  ", "warning")
 
     _vparser = vr["stats"].get("parser", "built-in") if vr["stats"] else "built-in"
 
