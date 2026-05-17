@@ -492,6 +492,7 @@ class MainWindow(QMainWindow):
         self.action_buttons.cancel_clicked.connect(self._on_cancel_clicked)
         self.action_buttons.open_output_clicked.connect(self._on_open_output_clicked)
         self.action_buttons.preview_clicked.connect(self._on_preview_clicked)
+        self.action_buttons.find_subtitles_clicked.connect(self._on_find_subtitles_clicked)
         
         # Internal signals
         self.project_changed.connect(self._update_project_dependent_ui)
@@ -533,6 +534,9 @@ class MainWindow(QMainWindow):
 
         # Enable preview button when a file or directory is selected
         self.action_buttons.set_preview_enabled(True)
+
+        # Enable find subtitles button for directories
+        self.action_buttons.set_find_subtitles_enabled(path_obj.is_dir())
     
     def _on_project_cleared(self) -> None:
         """Handle project selection being cleared."""
@@ -550,6 +554,7 @@ class MainWindow(QMainWindow):
 
         # Disable preview button when no project is selected
         self.action_buttons.set_preview_enabled(False)
+        self.action_buttons.set_find_subtitles_enabled(False)
     
     def _on_languages_detected(self, detection_result) -> None:
         """Handle subtitle language detection results."""
@@ -851,6 +856,31 @@ class MainWindow(QMainWindow):
         # Open video preview dialog
         dialog = VideoPreviewDialog(video_file, subtitle_files, self)
         dialog.show()
+
+    def _on_find_subtitles_clicked(self) -> None:
+        """Open the Find Subtitles dialog for the selected directory."""
+        from app.dialogs.find_subtitles_dialog import FindSubtitlesDialog
+
+        selected_path = self.project_selector.get_selected_path()
+        if not selected_path:
+            QMessageBox.warning(
+                self,
+                self.tr("No Selection"),
+                self.tr("Please select a project directory first.")
+            )
+            return
+
+        from pathlib import Path
+        if not Path(selected_path).is_dir():
+            QMessageBox.warning(
+                self,
+                self.tr("Directory Required"),
+                self.tr("Please select a directory (not a single file) to use Find Subtitles.")
+            )
+            return
+
+        dialog = FindSubtitlesDialog(selected_path, self.config_manager, self)
+        dialog.exec()
 
     def _on_preview_clicked(self) -> None:
         """Handle preview button click from action buttons."""

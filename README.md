@@ -27,6 +27,12 @@ A professional cross-platform desktop application for subtitle processing, built
 - **📱 Cross-platform**: Native support for Windows, macOS, and Linux
 - **🌍 Multilingual UI**: Interface available in English, Bulgarian, German, and Spanish
 
+### ✅ Subtitle Finder (New in dev)
+- **🔍 Online subtitle search**: Search OpenSubtitles, Subscene, YTS, YIFY-Subtitles, and more from within the app
+- **🎬 NFO-aware identification**: Reads `.nfo` files (with AI + ffprobe fallback) to identify movies accurately
+- **⚡ Parallel provider queries**: All configured providers queried simultaneously for fast results
+- **📥 One-click download**: Pick the best match from the results table and download directly
+
 ### ✅ Recent Improvements
 - **📁 Multi-format support**: Extraction and language detection now work with MP4, AVI, MOV, M4V, WebM, TS, M2TS in addition to MKV
 - **🏷️ Language-coded output filenames**: Extracted subtitles are named `movie.en.srt`; translated files use the target language code (e.g. `movie.bg.srt`)
@@ -45,6 +51,7 @@ A professional cross-platform desktop application for subtitle processing, built
 ### Optional Dependencies
 - **ffmpeg & ffprobe**: For subtitle extraction from video files
 - **API Keys**: For translation services (OpenAI, Anthropic Claude, etc.)
+- **requests / beautifulsoup4 / lxml**: For the subtitle finder (included in `requirements.txt`)
 
 ### Platform-Specific Installation
 
@@ -195,6 +202,21 @@ python3 scripts/srt_names_sync.py /path/to/files --provider openai --execute
 python3 scripts/srt_names_sync.py /path/to/files --provider openai --jsonl
 ```
 
+#### Find Subtitles Online
+```bash
+# Search all providers for a Bulgarian subtitle
+python3 scripts/find_subtitles.py /path/to/movies -l bg
+
+# Search for a single file
+python3 scripts/find_subtitles.py /path/to/movie.mkv -l en
+
+# Only read .nfo metadata (no network requests)
+python3 scripts/find_subtitles.py /path/to/movies --nfo-only
+
+# JSONL output for automation
+python3 scripts/find_subtitles.py /path/to/movies -l bg --jsonl
+```
+
 ## 🔧 Development
 
 ### Project Structure
@@ -203,13 +225,17 @@ SubtitleToolkit/
 ├── scripts/                    # CLI scripts
 │   ├── extract_mkv_subtitles.py   # Subtitle extraction (MKV/MP4/AVI/MOV/…)
 │   ├── srtTranslateWhole.py        # AI translation
-│   └── srt_names_sync.py           # Filename synchronization
+│   ├── srt_names_sync.py           # Filename synchronization
+│   ├── find_subtitles.py           # Online subtitle search
+│   └── lib/
+│       └── subtitle_finder/        # Subtitle finder library (providers, NFO parsing)
 ├── app/                        # PySide6 desktop application
 │   ├── main.py                 # Application entry point
 │   ├── main_window.py          # Main window
 │   ├── widgets/                # UI components
 │   ├── dialogs/                # Settings and dialogs
-│   │   └── file_filter_dialog.py   # Per-file selection dialog
+│   │   ├── file_filter_dialog.py   # Per-file selection dialog
+│   │   └── find_subtitles_dialog.py # Online subtitle search dialog
 │   ├── runner/                 # Subprocess orchestration
 │   ├── config/                 # Configuration management
 │   ├── i18n/                   # Translations (bg, de, es)

@@ -17,3 +17,8 @@ pysrt>=1.1.0
 
 # Video preview
 python-mpv>=1.0.1  # Requires libmpv (install via: brew install mpv / apt install libmpv-dev / choco install mpv)
+
+# Subtitle finder
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0  # Faster XML parser for NFO files (optional but recommended)

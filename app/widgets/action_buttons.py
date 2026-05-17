@@ -28,6 +28,7 @@ class ActionButtons(QFrame):
     
     # Signals
     run_clicked = Signal()
+    find_subtitles_clicked = Signal()
     cancel_clicked = Signal()
     open_output_clicked = Signal()
     preview_clicked = Signal()
@@ -181,6 +182,39 @@ class ActionButtons(QFrame):
         """)
         self.preview_button.setEnabled(False)
         layout.addWidget(self.preview_button)
+
+        # Find Subtitles button
+        self.find_subtitles_button = QPushButton("Find Subtitles")
+        self.find_subtitles_button.setMinimumSize(140, 40)
+        self.find_subtitles_button.setStyleSheet("""
+            QPushButton {
+                background-color: #00897b;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid #00897b;
+                border-radius: 8px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #26a69a;
+                border-color: #26a69a;
+            }
+            QPushButton:pressed {
+                background-color: #00695c;
+                border-color: #00695c;
+            }
+            QPushButton:disabled {
+                background-color: #333;
+                border-color: #333;
+                color: #666;
+            }
+        """)
+        self.find_subtitles_button.setEnabled(False)
+        self.find_subtitles_button.setToolTip(
+            "Search subtitle sites for subtitles matching videos in the selected folder"
+        )
+        layout.addWidget(self.find_subtitles_button)
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
@@ -188,6 +222,7 @@ class ActionButtons(QFrame):
         self.cancel_button.clicked.connect(self._on_cancel_clicked)
         self.open_output_button.clicked.connect(self._on_open_output_clicked)
         self.preview_button.clicked.connect(self._on_preview_clicked)
+        self.find_subtitles_button.clicked.connect(self._on_find_subtitles_clicked)
     
     def _on_run_clicked(self) -> None:
         """Handle run button click."""
@@ -206,6 +241,10 @@ class ActionButtons(QFrame):
     def _on_preview_clicked(self) -> None:
         """Handle preview button click."""
         self.preview_clicked.emit()
+
+    def _on_find_subtitles_clicked(self) -> None:
+        """Handle find subtitles button click."""
+        self.find_subtitles_clicked.emit()
     
     def set_running_state(self, running: bool) -> None:
         """Set the running state and update button states accordingly."""
@@ -239,6 +278,10 @@ class ActionButtons(QFrame):
         """Enable or disable the preview button."""
         self._preview_enabled = enabled
         self.preview_button.setEnabled(enabled and not self._is_running)
+
+    def set_find_subtitles_enabled(self, enabled: bool) -> None:
+        """Enable or disable the find subtitles button."""
+        self.find_subtitles_button.setEnabled(enabled and not self._is_running)
     
     def set_processing_complete(self, success: bool = True, message: str = "") -> None:
         """Set the state to indicate processing completion."""
@@ -324,6 +367,11 @@ class ActionButtons(QFrame):
 
         # Preview button: enabled if preview is enabled and not running
         self.preview_button.setEnabled(self._preview_enabled and not self._is_running)
+
+        # Find Subtitles button: disabled while pipeline is running
+        self.find_subtitles_button.setEnabled(
+            self.find_subtitles_button.isEnabled() and not self._is_running
+        )
 
         # Update button text based on running state
         if self._is_running:

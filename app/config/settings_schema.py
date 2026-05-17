@@ -219,7 +219,55 @@ class SettingsSchema:
                 "last_translate_model": "",
                 "last_sync_provider": "",
                 "last_sync_model": "",
-            }
+            },
+            "subtitle_finder": {
+                "default_language": "bg",
+                "fallback_language": "",  # empty = any language
+                "nfo_ai_fallback": True,
+                "nfo_ai_provider": "openai",
+                "nfo_ai_model": "gpt-4o-mini",
+                "providers": [
+                    {
+                        "id": "opensubtitles",
+                        "name": "OpenSubtitles",
+                        "type": "api",
+                        "enabled": True,
+                        "url": "https://api.opensubtitles.com/api/v1",
+                        "api_key": "",
+                        "username": "",
+                        "password": "",
+                    },
+                    {
+                        "id": "subdl",
+                        "name": "SubDL",
+                        "type": "api",
+                        "enabled": True,
+                        "url": "https://api.subdl.com/api/v1",
+                        "api_key": "",
+                    },
+                    {
+                        "id": "subsunacs",
+                        "name": "Subsunacs.net",
+                        "type": "scraper",
+                        "enabled": True,
+                        "url": "https://subsunacs.net/",
+                    },
+                    {
+                        "id": "yavka",
+                        "name": "Yavka.net",
+                        "type": "scraper",
+                        "enabled": True,
+                        "url": "https://yavka.net/",
+                    },
+                    {
+                        "id": "sabsubs",
+                        "name": "Subs SAB",
+                        "type": "scraper",
+                        "enabled": True,
+                        "url": "http://subs.sab.bz/",
+                    },
+                ],
+            },
         }
     
     @staticmethod

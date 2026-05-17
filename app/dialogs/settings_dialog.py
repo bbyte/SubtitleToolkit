@@ -14,7 +14,7 @@ from PySide6.QtGui import QFont
 
 from app.config import ConfigManager, ValidationResult
 from app.widgets.settings_tabs import (
-    ToolsTab, TranslatorsTab, LanguagesTab, AdvancedTab, InterfaceTab
+    ToolsTab, TranslatorsTab, LanguagesTab, AdvancedTab, InterfaceTab, SubtitleFinderTab
 )
 
 
@@ -144,6 +144,10 @@ class SettingsDialog(QDialog):
         # Advanced tab - system and behavior settings
         self._tabs['advanced'] = AdvancedTab(self.config_manager, self)
         self.tab_widget.addTab(self._tabs['advanced'], self.tr("Advanced"))
+
+        # Subtitle Finder tab - providers and search settings
+        self._tabs['subtitle_finder'] = SubtitleFinderTab(self.config_manager, self)
+        self.tab_widget.addTab(self._tabs['subtitle_finder'], self.tr("Subtitle Finder"))
     
     def _configure_scroll_behavior(self) -> None:
         """Configure scroll area for optimal behavior."""
