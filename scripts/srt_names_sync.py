@@ -139,9 +139,10 @@ class SRTNamesSync:
         mkv_files = []
         srt_files = []
         
+        _VIDEO_EXTS = {'.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.m2ts'}
         for file_path in self.directory.rglob('*'):
             if file_path.is_file():
-                if file_path.suffix.lower() == '.mkv':
+                if file_path.suffix.lower() in _VIDEO_EXTS:
                     mkv_files.append(MediaFile(file_path, file_path.stem, file_path.suffix))
                 elif file_path.suffix.lower() == '.srt':
                     # Apply language filter if specified
@@ -155,7 +156,7 @@ class SRTNamesSync:
                         srt_files.append(MediaFile(file_path, file_path.stem, file_path.suffix))
         
         self._print_or_emit(
-            f"{Colors.OKGREEN}Found {len(mkv_files)} MKV files and {len(srt_files)} SRT files{Colors.ENDC}",
+            f"{Colors.OKGREEN}Found {len(mkv_files)} video files and {len(srt_files)} SRT files{Colors.ENDC}",
             "info",
             data={"mkv_count": len(mkv_files), "srt_count": len(srt_files)}
         )

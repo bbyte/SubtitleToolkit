@@ -1098,6 +1098,22 @@ class MainWindow(QMainWindow):
         """Run the extraction stage."""
         try:
             config = self._build_extract_config()
+
+            # Pre-flight: check write permission on output directory
+            import os
+            from pathlib import Path
+            _out_dir = config.output_directory or config.input_directory
+            if _out_dir and not os.access(str(_out_dir), os.W_OK):
+                from PySide6.QtWidgets import QFileDialog
+                new_dir = QFileDialog.getExistingDirectory(
+                    self,
+                    self.tr("Output directory is not writable — choose another directory"),
+                    str(_out_dir),
+                )
+                if not new_dir:
+                    return
+                config.output_directory = new_dir
+
             self.script_runner.run_extract(config)
         except Exception as e:
             error_msg = f"Failed to start extraction: {str(e)}"
@@ -1125,6 +1141,47 @@ class MainWindow(QMainWindow):
         """Run the translation stage."""
         try:
             config = self._build_translate_config()
+
+            # Warn if source and target language appear to be the same
+            source = config.source_language or ''
+            target = config.target_language or ''
+            if source.lower() != 'auto' and source.strip() and target.strip():
+                if source.strip().lower()[:2] == target.strip().lower()[:2]:
+                    reply = QMessageBox.question(
+                        self,
+                        self.tr("Same Language Warning"),
+                        self.tr(
+                            f"Source and target language appear to be the same "
+                            f"({source} \u2192 {target}). This will translate without "
+                            f"changing language, which is usually not intended. Proceed anyway?"
+                        ),
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
+                    if reply == QMessageBox.No:
+                        return
+
+            # Pre-flight: check write permission on translation output directory
+            import os
+            from pathlib import Path
+            _translate_out_dir = config.output_directory
+            if not _translate_out_dir:
+                # Fall back to directory of first input file or input_directory
+                if config.input_files:
+                    _translate_out_dir = str(Path(config.input_files[0]).parent)
+                elif config.input_directory:
+                    _translate_out_dir = config.input_directory
+            if _translate_out_dir and not os.access(str(_translate_out_dir), os.W_OK):
+                from PySide6.QtWidgets import QFileDialog
+                new_dir = QFileDialog.getExistingDirectory(
+                    self,
+                    self.tr("Output directory is not writable — choose another directory"),
+                    str(_translate_out_dir),
+                )
+                if not new_dir:
+                    return
+                config.output_directory = new_dir
+
             self.script_runner.run_translate(config)
         except Exception as e:
             error_msg = f"Failed to start translation: {str(e)}"
@@ -1282,7 +1339,7 @@ class MainWindow(QMainWindow):
         settings = self.config_manager.get_settings()
         tools_config = settings.get('tools', {})
 
-        return ExtractConfig(
+        config = ExtractConfig(
             input_directory=selected_path,
             language_code=extract_settings.get('language_code', 'eng'),
             output_directory=extract_settings.get('output_directory'),
@@ -1292,6 +1349,13 @@ class MainWindow(QMainWindow):
             ffmpeg_path=tools_config.get('ffmpeg_path') or None,
             ffprobe_path=tools_config.get('ffprobe_path') or None,
         )
+
+        # Apply file filter if set
+        filtered = self.project_selector.get_filtered_files()
+        if filtered is not None:
+            config.specific_files = filtered
+
+        return config
     
     def _build_fps_sync_config(self) -> FpsSyncConfig:
         """Build FPS sync configuration from UI settings."""
@@ -1420,7 +1484,8 @@ class MainWindow(QMainWindow):
         if selected_path_obj.is_file():
             # Single file mode - for translation, we need to find the corresponding SRT file
             # If this is called after extraction, look for the SRT file in the same directory
-            if selected_path_obj.suffix.lower() == '.mkv':
+            _VIDEO_EXTS = {'.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.m2ts'}
+            if selected_path_obj.suffix.lower() in _VIDEO_EXTS:
                 # Look for corresponding SRT file from extraction
                 srt_file = selected_path_obj.with_suffix('.srt')
                 if srt_file.exists():
@@ -1452,6 +1517,30 @@ class MainWindow(QMainWindow):
                     price_input=translate_settings.get('price_input', 0.0),
                     price_output=translate_settings.get('price_output', 0.0),
                 )
+
+        # Check for an active file filter in directory mode
+        filtered = self.project_selector.get_filtered_files()
+        if filtered is not None and self.project_selector.is_directory_mode():
+            # Use the filtered list as explicit input files instead of scanning the directory
+            return TranslateConfig(
+                input_files=filtered,
+                input_directory=None,
+                output_directory=translate_settings.get('output_directory'),
+                source_language=translate_settings.get('source_language', 'auto'),
+                target_language=translate_settings.get('target_language', 'en'),
+                provider=provider,
+                model=translate_settings.get('model') or provider_config.get('default_model', ''),
+                api_key=api_key,
+                base_url=provider_config.get('base_url') if provider == 'lm_studio' else None,
+                max_workers=translate_settings.get('max_workers', 2),
+                chunk_size=translate_settings.get('chunk_size', 20),
+                temperature=provider_config.get('temperature', 0.3),
+                max_tokens=provider_config.get('max_tokens', 4096),
+                timeout=provider_config.get('timeout', 30),
+                overwrite_existing=translate_settings.get('overwrite_existing', False),
+                price_input=translate_settings.get('price_input', 0.0),
+                price_output=translate_settings.get('price_output', 0.0),
+            )
 
         # Directory mode (or fallback for single file) - use input_directory
         return TranslateConfig(

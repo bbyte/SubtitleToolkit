@@ -71,7 +71,7 @@ def print_banner():
 ║  {Colors.BOLD}██║ ╚═╝ ██║██║  ██╗ ╚████╔╝     ███████║██║  ██║   ██║   {Colors.ENDC}{Colors.CYAN}   ║
 ║  {Colors.BOLD}╚═╝     ╚═╝╚═╝  ╚═╝  ╚═══╝      ╚══════╝╚═╝  ╚═╝   ╚═╝   {Colors.ENDC}{Colors.CYAN}   ║
 ║                                                               ║
-║  {Colors.YELLOW}            Subtitle Extractor for MKV Files{Colors.CYAN}                 ║
+║  {Colors.YELLOW}         Subtitle Extractor for MKV/MP4/AVI/MOV{Colors.CYAN}               ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝{Colors.ENDC}
 """
@@ -115,9 +115,37 @@ def spinning_animation(text, duration=0.5):
     print('\r' + ' ' * (len(text) + 5), end='\r')  # Clear the line
 
 
+SUPPORTED_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.m2ts'}
+
+# ISO 639-2 (3-letter) to ISO 639-1 (2-letter) code mapping
+_ISO639_2_TO_1 = {
+    "eng": "en", "bul": "bg", "deu": "de", "ger": "de", "spa": "es",
+    "fra": "fr", "fre": "fr", "ita": "it", "por": "pt", "rus": "ru",
+    "jpn": "ja", "kor": "ko", "zho": "zh", "chi": "zh", "ara": "ar",
+    "nld": "nl", "dut": "nl", "pol": "pl", "tur": "tr", "swe": "sv",
+    "nor": "no", "dan": "da", "fin": "fi", "ell": "el", "ces": "cs",
+    "cze": "cs", "hun": "hu", "ron": "ro", "rum": "ro", "ukr": "uk",
+    "heb": "he", "hin": "hi", "tha": "th", "vie": "vi", "hrv": "hr",
+    "srp": "sr", "slk": "sk", "slv": "sl", "cat": "ca", "lav": "lv",
+    "lit": "lt", "est": "et", "ind": "id", "msa": "ms",
+}
+
+
+def _extract_lang_to_code(lang_code: str) -> str:
+    """Convert a 3-letter ISO 639-2 code (or 2-letter code) to a 2-letter ISO 639-1 code."""
+    key = lang_code.strip().lower()
+    if key in _ISO639_2_TO_1:
+        return _ISO639_2_TO_1[key]
+    # Already a 2-letter code or unknown — return lowercased, max 3 chars
+    return key[:3]
+
+
 def get_mkv_files(directory):
-    """Get all MKV files in the specified directory."""
-    return list(Path(directory).glob("*.mkv"))
+    """Get all supported video files in the specified directory."""
+    files = []
+    for ext in SUPPORTED_EXTENSIONS:
+        files.extend(Path(directory).glob(f"*{ext}"))
+    return sorted(files)
 
 
 def get_subtitle_tracks(mkv_file):
@@ -375,9 +403,9 @@ def extract_subtitle(mkv_file, track_index, output_file, overwrite=False, preser
 def main():
     global jsonl_mode
     
-    parser = argparse.ArgumentParser(description="Extract subtitles from MKV files")
+    parser = argparse.ArgumentParser(description="Extract subtitles from video files (MKV, MP4, AVI, MOV, etc.)")
     parser.add_argument("path", nargs="?", default=".",
-                        help="Directory containing MKV files or path to single MKV file (default: current directory)")
+                        help="Directory containing video files or path to a single video file (default: current directory)")
     parser.add_argument("-l", "--language", default="eng",
                         help="Language code for subtitle track (default: eng)")
     parser.add_argument("-t", "--track-indices", type=str, default=None,
@@ -390,7 +418,9 @@ def main():
                         help="Preserve ASS/SSA subtitle format instead of converting to SRT")
     parser.add_argument("--jsonl", action="store_true",
                         help="Output structured JSONL events to stdout")
-    
+    parser.add_argument("--files", default=None,
+                        help="Comma-separated list of specific file paths to process (overrides directory scanning)")
+
     args = parser.parse_args()
 
     # Set global JSONL mode
@@ -413,51 +443,63 @@ def main():
     
     # Print banner
     print_banner()
-    
-    # Validate input path (can be directory or single MKV file)
-    input_path = Path(args.path)
-    if not input_path.exists():
-        error_msg = f"Path '{input_path}' does not exist"
-        emit_jsonl("error", error_msg, data={"path": str(input_path)})
-        print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
-        sys.exit(1)
-    
-    # Determine if processing single file or directory
-    if input_path.is_file():
-        # Single file mode
-        if not input_path.suffix.lower() == '.mkv':
-            error_msg = f"Single file input must be an MKV file, got: {input_path.suffix}"
+
+    # If --files is specified, use those directly regardless of path type
+    if args.files:
+        file_paths = [p.strip() for p in args.files.split(',') if p.strip()]
+        mkv_files = [Path(p) for p in file_paths if Path(p).exists()]
+        if not mkv_files:
+            error_msg = "None of the specified files exist"
+            emit_jsonl("error", error_msg, data={"files": file_paths})
+            print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
+            sys.exit(1)
+        input_path = mkv_files[0].parent
+        print_colored(f"\n{Colors.CYAN}🎯 Processing {len(mkv_files)} specified file(s){Colors.ENDC}")
+    else:
+        # Validate input path (can be directory or single MKV file)
+        input_path = Path(args.path)
+        if not input_path.exists():
+            error_msg = f"Path '{input_path}' does not exist"
             emit_jsonl("error", error_msg, data={"path": str(input_path)})
             print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
             sys.exit(1)
-        
-        print_colored(f"\n{Colors.CYAN}🎯 Processing single file:{Colors.ENDC} {Colors.BOLD}{input_path.name}{Colors.ENDC}")
-        mkv_files = [input_path]
-        
-    elif input_path.is_dir():
-        # Directory mode
-        print_colored(f"\n{Colors.CYAN}🔍 Scanning directory:{Colors.ENDC} {Colors.BOLD}{input_path}{Colors.ENDC}")
-        mkv_files = get_mkv_files(input_path)
-        
-    else:
-        error_msg = f"Path must be either a directory or an MKV file: {input_path}"
-        emit_jsonl("error", error_msg, data={"path": str(input_path)})
-        print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
-        sys.exit(1)
-    
+
+        # Determine if processing single file or directory
+        if input_path.is_file():
+            # Single file mode
+            if input_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                error_msg = f"Unsupported file type '{input_path.suffix}'. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+                emit_jsonl("error", error_msg, data={"path": str(input_path)})
+                print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
+                sys.exit(1)
+
+            print_colored(f"\n{Colors.CYAN}🎯 Processing single file:{Colors.ENDC} {Colors.BOLD}{input_path.name}{Colors.ENDC}")
+            mkv_files = [input_path]
+
+        elif input_path.is_dir():
+            # Directory mode
+            print_colored(f"\n{Colors.CYAN}🔍 Scanning directory:{Colors.ENDC} {Colors.BOLD}{input_path}{Colors.ENDC}")
+            mkv_files = get_mkv_files(input_path)
+
+        else:
+            error_msg = f"Path must be either a directory or a video file: {input_path}"
+            emit_jsonl("error", error_msg, data={"path": str(input_path)})
+            print_colored(f"{Colors.RED}✗ Error: {error_msg}{Colors.ENDC}")
+            sys.exit(1)
+
     if not mkv_files:
         if input_path.is_dir():
-            warning_msg = f"No MKV files found in {input_path}"
+            warning_msg = f"No supported video files found in {input_path}"
         else:
-            warning_msg = f"File is not a valid MKV: {input_path}"
+            warning_msg = f"File is not a supported video format: {input_path}"
         emit_jsonl("warning", warning_msg, data={"path": str(input_path)})
         print_colored(f"{Colors.YELLOW}⚠ {warning_msg}{Colors.ENDC}")
         return
-    
+
     if input_path.is_dir():
-        info_msg = f"Found {len(mkv_files)} MKV file(s) in {input_path}"
+        info_msg = f"Found {len(mkv_files)} video file(s) in {input_path}"
     else:
-        info_msg = f"Processing single MKV file: {input_path.name}"
+        info_msg = f"Processing single file: {input_path.name}"
     
     emit_jsonl("info", info_msg, data={
         "path": str(input_path),
@@ -465,12 +507,23 @@ def main():
         "language": args.language,
         "mode": "directory" if input_path.is_dir() else "single_file"
     })
-    
-    print_colored(f"{Colors.GREEN}✓ Found {len(mkv_files)} MKV file(s){Colors.ENDC}")
+
+    print_colored(f"{Colors.GREEN}✓ Found {len(mkv_files)} video file(s){Colors.ENDC}")
     print_colored(f"{Colors.CYAN}🌐 Target language:{Colors.ENDC} {Colors.BOLD}{args.language.upper()}{Colors.ENDC}\n")
-    
+
+    # Pre-flight: check write permission on the output directory
+    if args.output:
+        _check_dir = Path(args.output)
+    else:
+        _check_dir = mkv_files[0].parent
+    if not os.access(str(_check_dir), os.W_OK):
+        perm_err = f"No write permission on output directory: {_check_dir}"
+        emit_jsonl("error", perm_err, data={"output_directory": str(_check_dir)})
+        print_colored(f"{Colors.RED}✗ Error: {perm_err}{Colors.ENDC}")
+        sys.exit(1)
+
     print_colored(f"{Colors.HEADER}{'='*65}{Colors.ENDC}\n")
-    
+
     successful = 0
     failed = 0
     outputs = []
@@ -559,8 +612,9 @@ def main():
                 # Preserve native ASS/SSA format
                 output_ext = f".{codec_name}" if codec_name else ".ass"
             else:
-                # Convert to SRT (default)
-                output_ext = ".srt"
+                # Convert to SRT (default), include language code in extension
+                lang_code = _extract_lang_to_code(args.language)
+                output_ext = f".{lang_code}.srt"
 
             # Create output filename
             if args.output:

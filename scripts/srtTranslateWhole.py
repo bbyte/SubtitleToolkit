@@ -19,6 +19,30 @@ from datetime import datetime, timezone
 # Load environment variables
 load_dotenv()
 
+# Language name -> ISO 639-1 code mapping for output filename generation
+LANG_NAME_TO_CODE = {
+    "english": "en", "bulgarian": "bg", "german": "de", "spanish": "es",
+    "french": "fr", "italian": "it", "portuguese": "pt", "russian": "ru",
+    "japanese": "ja", "korean": "ko", "chinese": "zh", "arabic": "ar",
+    "dutch": "nl", "polish": "pl", "turkish": "tr", "swedish": "sv",
+    "norwegian": "no", "danish": "da", "finnish": "fi", "greek": "el",
+    "czech": "cs", "hungarian": "hu", "romanian": "ro", "ukrainian": "uk",
+    "hebrew": "he", "hindi": "hi", "thai": "th", "vietnamese": "vi",
+    "croatian": "hr", "serbian": "sr", "slovak": "sk", "slovenian": "sl",
+    "catalan": "ca", "latvian": "lv", "lithuanian": "lt", "estonian": "et",
+    "indonesian": "id", "malay": "ms",
+}
+
+
+def _lang_to_code(name: str) -> str:
+    """Convert a language name or code to a 2-letter ISO 639-1 code."""
+    key = name.strip().lower()
+    if key in LANG_NAME_TO_CODE:
+        return LANG_NAME_TO_CODE[key]
+    # Already a short code or unknown - use first 2 chars lowercased as fallback
+    return key[:2]
+
+
 # Global clients (initialized when needed)
 openai_client = None
 anthropic_client = None
@@ -2163,6 +2187,13 @@ def read_file_with_encoding(file_path):
     raise UnicodeDecodeError(f"Failed to read file with any of these encodings: {', '.join(encodings)}")
 
 def process_srt_file(input_file, output_file, context=None, provider="openai", model=None, max_workers=None, chunk_size=None, source_lang="English", target_lang="Bulgarian", price_input=0.0, price_output=0.0):
+    # Pre-flight: check write permission on output directory
+    output_dir = os.path.dirname(os.path.abspath(output_file))
+    if not os.access(output_dir, os.W_OK):
+        perm_err = f"No write permission on output directory: {output_dir}"
+        log_output(perm_err, "❌ ", "error")
+        raise PermissionError(perm_err)
+
     log_output(f"Reading file: {input_file}", "\n📂 ", "info")
     
     try:
@@ -2293,7 +2324,7 @@ def process_directory(directory, context=None, provider="openai", model=None, ma
         # JSONL mode - no tqdm progress bar
         for i, file in enumerate(srt_files):
             input_path = file
-            output_path = get_output_filename(input_path)
+            output_path = get_output_filename(input_path, target_lang=target_lang)
             try:
                 process_srt_file(input_path, output_path, context, provider, model, max_workers, chunk_size, source_lang, target_lang, price_input=price_input, price_output=price_output)
                 outputs.append(output_path)
@@ -2302,7 +2333,7 @@ def process_directory(directory, context=None, provider="openai", model=None, ma
             except Exception as e:
                 failed_files.append({"file": input_path, "error": str(e)})
                 emit_jsonl("error", f"Failed to process {input_path}: {str(e)}")
-        
+
         # Emit final result
         try:
             emit_jsonl("result", "Directory processing completed", 100, {
@@ -2321,13 +2352,13 @@ def process_directory(directory, context=None, provider="openai", model=None, ma
             sys.exit(0)
     else:
         # Normal mode with tqdm progress bar
-        with tqdm(total=len(srt_files), 
+        with tqdm(total=len(srt_files),
                  desc="\033[1;36mProcessing files\033[0m",
                  bar_format="{desc}: {percentage:3.0f}%|{bar:30}\033[92m|\033[0m{n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
                  colour='green') as pbar:
             for file in srt_files:
                 input_path = file
-                output_path = get_output_filename(input_path)
+                output_path = get_output_filename(input_path, target_lang=target_lang)
                 try:
                     process_srt_file(input_path, output_path, context, provider, model, max_workers, chunk_size, source_lang, target_lang, price_input=price_input, price_output=price_output)
                     outputs.append(output_path)
@@ -2336,11 +2367,12 @@ def process_directory(directory, context=None, provider="openai", model=None, ma
                     print(f"❌ Failed to process {input_path}: {str(e)}")
                 pbar.update(1)
 
-def get_output_filename(input_file, output_file=None):
+def get_output_filename(input_file, output_file=None, target_lang="Bulgarian"):
     if output_file:
         return output_file
     base_name = os.path.splitext(input_file)[0]
-    return f"{base_name}.bg.srt"
+    lang_code = _lang_to_code(target_lang)
+    return f"{base_name}.{lang_code}.srt"
 
 def handle_sigpipe(signum, frame):
     """Handle SIGPIPE signal gracefully."""
@@ -2408,6 +2440,6 @@ if __name__ == "__main__":
         process_directory(args.directory, args.context, args.provider, args.model, args.workers, args.chunk_size, args.source_lang, args.target_lang, price_input=args.price_input, price_output=args.price_output)
         log_output("All translations complete", "", "info")
     else:
-        output_file = get_output_filename(args.file, args.output)
+        output_file = get_output_filename(args.file, args.output, target_lang=args.target_lang)
         process_srt_file(args.file, output_file, args.context, args.provider, args.model, args.workers, args.chunk_size, args.source_lang, args.target_lang, price_input=args.price_input, price_output=args.price_output)
         log_output("Translation complete", "", "info")

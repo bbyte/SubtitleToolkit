@@ -15,6 +15,7 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
 
 from app.utils.mkv_language_detector import MKVLanguageDetector, LanguageDetectionResult
+from app.dialogs.file_filter_dialog import FileFilterDialog
 
 
 class ProjectSelector(QFrame):
@@ -40,6 +41,7 @@ class ProjectSelector(QFrame):
         self._selected_path = ""
         self._is_directory_mode = True  # Default to directory mode
         self._last_language_detection = None  # Store last language detection result
+        self._filtered_files: Optional[List[str]] = None  # None means "all files"
         self._setup_ui()
         self._connect_signals()
     
@@ -107,7 +109,14 @@ class ProjectSelector(QFrame):
         self.clear_button.setMinimumWidth(80)
         self.clear_button.setEnabled(False)
         dir_layout.addWidget(self.clear_button)
-        
+
+        # Filter files button (directory mode only, hidden until a directory is selected)
+        self.filter_button = QPushButton(self.tr("Filter files..."))
+        self.filter_button.setMinimumHeight(35)
+        self.filter_button.setMinimumWidth(120)
+        self.filter_button.hide()
+        dir_layout.addWidget(self.filter_button)
+
         layout.addLayout(dir_layout)
         
         # Status label
@@ -120,6 +129,7 @@ class ProjectSelector(QFrame):
         """Connect internal signals and slots."""
         self.browse_button.clicked.connect(self._browse_path)
         self.clear_button.clicked.connect(self._clear_selection)
+        self.filter_button.clicked.connect(self._open_file_filter)
         self.path_edit.textChanged.connect(self._on_path_changed)
         self.mode_group.buttonToggled.connect(self._on_mode_changed)
     
@@ -129,10 +139,16 @@ class ProjectSelector(QFrame):
             return
             
         self._is_directory_mode = (button == self.directory_radio)
-        
+
+        # Hide filter button when switching away from directory mode
+        if not self._is_directory_mode:
+            self.filter_button.hide()
+            self._filtered_files = None
+            self.filter_button.setText(self.tr("Filter files..."))
+
         # Clear current selection when switching modes
         self._clear_selection()
-        
+
         # Update UI elements based on mode
         if self._is_directory_mode:
             self.title_label.setText(self.tr("Select Project Folder"))
@@ -209,10 +225,15 @@ class ProjectSelector(QFrame):
         self._selected_path = str(directory_path.resolve())
         self.path_edit.setText(self._selected_path)
         self.clear_button.setEnabled(True)
-        
+
+        # Reset filter state for new directory
+        self._filtered_files = None
+        self.filter_button.setText(self.tr("Filter files..."))
+        self.filter_button.show()
+
         # Analyze directory contents
         self._analyze_directory(directory_path)
-        
+
         # Emit signal
         self.directory_selected.emit(self._selected_path)
     
@@ -310,14 +331,42 @@ class ProjectSelector(QFrame):
         """Clear selection (backwards compatibility)."""
         self._clear_selection()
     
+    def _open_file_filter(self) -> None:
+        """Open the file filter dialog and store the result."""
+        if not self._selected_path or not self._is_directory_mode:
+            return
+
+        dialog = FileFilterDialog(self._selected_path, self)
+        if dialog.exec():
+            selected = dialog.get_selected_files()
+            self._filtered_files = selected
+
+            # Count total processable files to show in button label
+            from app.dialogs.file_filter_dialog import VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS
+            from pathlib import Path as _Path
+            dir_path = _Path(self._selected_path)
+            total = sum(
+                1 for p in dir_path.iterdir()
+                if p.is_file() and p.suffix.lower() in (VIDEO_EXTENSIONS | SUBTITLE_EXTENSIONS)
+            )
+            self.filter_button.setText(
+                self.tr("Filter files... ({0}/{1})").format(len(selected), total)
+            )
+
+            # Re-emit so downstream components pick up the new filter
+            self.directory_selected.emit(self._selected_path)
+
     def _clear_selection(self) -> None:
         """Clear the selected path."""
         self._selected_path = ""
         self._last_language_detection = None  # Clear language detection result
+        self._filtered_files = None
+        self.filter_button.setText(self.tr("Filter files..."))
+        self.filter_button.hide()
         self.path_edit.clear()
         self.clear_button.setEnabled(False)
         self.status_label.hide()
-        
+
         # Emit signal
         self.selection_cleared.emit()
     
@@ -469,8 +518,18 @@ class ProjectSelector(QFrame):
     def get_language_detection_result(self) -> Optional[LanguageDetectionResult]:
         """
         Get the complete language detection result from the last analysis.
-        
+
         Returns:
             LanguageDetectionResult object or None if no detection has been performed
         """
         return self._last_language_detection
+
+    def get_filtered_files(self) -> Optional[List[str]]:
+        """
+        Get the current file filter selection.
+
+        Returns:
+            None if no filter is active (all files should be processed), or a list
+            of absolute file paths that the user has chosen to include.
+        """
+        return self._filtered_files

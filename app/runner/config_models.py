@@ -22,6 +22,9 @@ class ExtractConfig:
     # Track selection
     track_indices: List[int] = field(default_factory=list)  # Specific track indices to extract
 
+    # File filter (if set, process only these files instead of scanning the directory)
+    specific_files: Optional[List[str]] = None
+
     # Processing options
     recursive: bool = True
     overwrite_existing: bool = False
@@ -83,6 +86,9 @@ class ExtractConfig:
 
         if self.overwrite_existing:
             args.append("--overwrite")
+
+        if self.specific_files:
+            args.extend(["--files", ",".join(self.specific_files)])
 
         # Always add JSONL flag for desktop app
         args.append("--jsonl")

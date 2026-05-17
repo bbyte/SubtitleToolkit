@@ -347,10 +347,11 @@ class MKVLanguageDetector:
         
         mkv_files = []
         try:
-            # Search for MKV files (case-insensitive)
-            for pattern in ["*.mkv", "*.MKV"]:
-                mkv_files.extend(directory.glob(pattern))
-                
+            # Search for supported video files (case-insensitive)
+            for ext in ['.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.m2ts']:
+                mkv_files.extend(directory.glob(f"*{ext}"))
+                mkv_files.extend(directory.glob(f"*{ext.upper()}"))
+
             # Sort by name for consistent ordering
             mkv_files.sort(key=lambda p: p.name.lower())
             
@@ -382,16 +383,18 @@ class MKVLanguageDetector:
                 errors=[f"Path does not exist: {path}"]
             )
         
+        _SUPPORTED_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.m2ts'}
+
         # Determine if it's a single file or directory
         if path_obj.is_file():
             # Single file mode
-            if path_obj.suffix.lower() != '.mkv':
+            if path_obj.suffix.lower() not in _SUPPORTED_EXTENSIONS:
                 return LanguageDetectionResult(
                     available_languages=[],
                     file_results=[],
                     total_files=0,
                     files_with_subtitles=0,
-                    errors=[f"File is not an MKV file: {path_obj.suffix}"]
+                    errors=[f"Unsupported file type: {path_obj.suffix}"]
                 )
             
             mkv_files = [path_obj]
@@ -406,7 +409,7 @@ class MKVLanguageDetector:
                     file_results=[],
                     total_files=0,
                     files_with_subtitles=0,
-                    errors=[f"No MKV files found in directory: {path}"]
+                    errors=[f"No supported video files found in directory: {path}"]
                 )
         else:
             return LanguageDetectionResult(

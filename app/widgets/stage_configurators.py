@@ -604,6 +604,7 @@ class TranslateConfigWidget(QFrame):
         """Connect internal signals."""
         self.source_lang_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.target_lang_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
+        self.target_lang_combo.currentTextChanged.connect(lambda: self._save_last_used())
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
         self.model_combo.currentTextChanged.connect(lambda: self.config_changed.emit())
         self.model_combo.currentTextChanged.connect(self._save_last_used)
@@ -796,6 +797,7 @@ class TranslateConfigWidget(QFrame):
         ui_settings = self._config_manager.get_settings('ui')
         ui_settings['last_translate_engine'] = self.engine_combo.currentText()
         ui_settings['last_translate_model'] = model
+        ui_settings['last_translate_target_lang'] = self.target_lang_combo.currentData() or ''
         self._config_manager.update_settings('ui', ui_settings, save=True)
 
     def _restore_last_used(self):
@@ -818,6 +820,10 @@ class TranslateConfigWidget(QFrame):
                 idx = self.model_combo.findText(f"★ {saved_model}")
             if idx >= 0:
                 self.model_combo.setCurrentIndex(idx)
+
+        saved_target_lang = ui_settings.get('last_translate_target_lang', '')
+        if saved_target_lang:
+            self._set_language_combo_by_code(self.target_lang_combo, saved_target_lang)
 
         # Refresh calibration indicator for the restored model
         self._update_cal_status()

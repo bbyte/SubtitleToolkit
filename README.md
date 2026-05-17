@@ -10,13 +10,14 @@ A professional cross-platform desktop application for subtitle processing, built
 ## 🎯 Features
 
 ### ✅ Core Functionality (Production Ready)
-- **🎬 Subtitle Extraction**: Extract subtitle tracks from MKV files with language selection and JSONL output
-- **🌐 AI Translation**: Translate subtitles using OpenAI, Anthropic Claude, or local LM Studio with structured output
+- **🎬 Subtitle Extraction**: Extract subtitle tracks from MKV, MP4, AVI, MOV, WebM and other video formats with language selection
+- **🌐 AI Translation**: Translate subtitles using OpenAI, Anthropic Claude, OpenRouter, xAI, Mistral, Groq, DeepSeek, Kimi, Gemini, Z.ai, or local LM Studio
 - **🔄 File Synchronization**: Intelligently match and rename subtitle files to video files with preview mode
 - **⚡ Pipeline Orchestration**: Complete Extract → Translate → Sync workflows with real-time progress tracking
 - **📋 JSONL Integration**: All scripts support structured JSON Lines output for automation and integration
+- **🎞️ FPS Conversion**: Convert subtitle timecodes between frame rates (e.g. 25 fps PAL → 23.976 fps NTSC)
 
-### ✅ Desktop Experience (Fully Working)  
+### ✅ Desktop Experience (Fully Working)
 - **🖥️ Modern GUI**: Professional PySide6 interface with dark theme
 - **🔍 Browser-style Zoom**: Ctrl/Cmd +/- zoom controls (50%-200%) with persistent state
 - **📐 Window State Memory**: Automatic save/restore of window size and position
@@ -24,12 +25,16 @@ A professional cross-platform desktop application for subtitle processing, built
 - **⚙️ Comprehensive Settings**: Tool detection, API management, and workflow configuration
 - **🔍 Dependency Detection**: Automatic detection of ffmpeg/mkvextract with installation guidance
 - **📱 Cross-platform**: Native support for Windows, macOS, and Linux
+- **🌍 Multilingual UI**: Interface available in English, Bulgarian, German, and Spanish
 
-### 🎉 Current Status
-- **CLI Scripts**: ✅ Production ready with JSONL support
-- **Desktop GUI**: ✅ Fully functional and ready to use
-- **Testing**: ✅ Comprehensive test suite available
-- **Packaging**: ✅ Build system ready for distribution
+### ✅ Recent Improvements
+- **📁 Multi-format support**: Extraction and language detection now work with MP4, AVI, MOV, M4V, WebM, TS, M2TS in addition to MKV
+- **🏷️ Language-coded output filenames**: Extracted subtitles are named `movie.en.srt`; translated files use the target language code (e.g. `movie.bg.srt`)
+- **🎯 Target language remembered**: Last-used translation target language is restored automatically on next launch
+- **⚠️ Same-language warning**: Warns before starting a translation where source and target language are the same
+- **🔒 Write-permission pre-flight**: Checks output directory writability before starting; offers a folder picker if not writable
+- **✅ Per-file selection**: "Filter files…" button lets you include/exclude individual files from a directory before processing
+- **🌐 Full Bulgarian translation**: All UI strings are now fully translated into Bulgarian (215 translations)
 
 ## 📋 Prerequisites
 
@@ -38,100 +43,53 @@ A professional cross-platform desktop application for subtitle processing, built
 - **Virtual environment** (recommended)
 
 ### Optional Dependencies
-- **ffmpeg & ffprobe**: For MKV subtitle extraction
-- **mkvextract** (MKVToolNix): Alternative for MKV processing  
-- **API Keys**: For translation services (OpenAI, Anthropic Claude)
+- **ffmpeg & ffprobe**: For subtitle extraction from video files
+- **API Keys**: For translation services (OpenAI, Anthropic Claude, etc.)
 
 ### Platform-Specific Installation
 
 #### macOS
 ```bash
-# Install ffmpeg and MKVToolNix via Homebrew
-brew install ffmpeg mkvtoolnix
-
-# Or install manually:
-# - ffmpeg: https://ffmpeg.org/download.html
-# - MKVToolNix: https://mkvtoolnix.download/
+brew install ffmpeg
 ```
 
 #### Windows
 ```powershell
-# Install via Chocolatey (recommended)
-choco install ffmpeg mkvtoolnix
-
-# Or install manually:
-# - ffmpeg: https://ffmpeg.org/download.html  
-# - MKVToolNix: https://mkvtoolnix.download/
-# - Add installation directories to your PATH
+choco install ffmpeg
 ```
 
 #### Linux (Ubuntu/Debian)
 ```bash
-# Install via package manager
-sudo apt update
-sudo apt install ffmpeg mkvtoolnix
-
-# For other distributions:
-# - Fedora: sudo dnf install ffmpeg mkvtoolnix
-# - Arch: sudo pacman -S ffmpeg mkvtoolnix
+sudo apt update && sudo apt install ffmpeg
 ```
 
 ## 🚀 Quick Start
 
 ### 1. Clone and Setup
 ```bash
-# Clone the repository
 git clone <repository-url>
 cd SubtitleToolkit
 
-# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
 ### 2. Configure API Keys (Optional)
 Create a `.env` file in the project root:
 ```bash
-# API keys for translation services
 OPENAI_API_KEY=your_openai_api_key_here
 ANTHROPIC_API_KEY=your_claude_api_key_here
-
-# Optional: Local LM Studio endpoint
-LM_STUDIO_BASE_URL=http://localhost:1234/v1
 ```
+
+Or configure them through the GUI: **File → Settings → Translators**.
 
 ### 3. Launch the Application
-
-#### ✅ CLI Scripts (Fully Working)
-The enhanced CLI scripts with JSONL support are fully functional:
 ```bash
-# Extract subtitles with JSONL output
-python3 scripts/extract_mkv_subtitles.py --jsonl /path/to/videos
-
-# Translate subtitles with JSONL output  
-OPENAI_API_KEY=your_key python3 scripts/srtTranslateWhole.py --jsonl -f input.srt -p openai
-
-# Sync subtitle names with JSONL output
-OPENAI_API_KEY=your_key python3 scripts/srt_names_sync.py --jsonl /path/to/files --provider openai
-```
-
-#### ✅ Desktop GUI (Fully Working)
-The complete PySide6 desktop application is now fully functional:
-```bash
-# Launch the full desktop application
+source venv/bin/activate
 python3 launch_app.py
-
-# Test GUI functionality
-python3 test_gui_launch.py
-
-# Test basic GUI components
-python3 test_basic_gui.py
 ```
-
-**Current Status**: All core functionality is implemented and working perfectly. Both the CLI scripts with JSONL support and the desktop GUI application are production-ready!
 
 ## 📖 User Guide
 
@@ -139,106 +97,91 @@ python3 test_basic_gui.py
 
 #### 1. Project Setup
 1. Launch the application: `python3 launch_app.py`
-2. Click **"Select Project Folder"** to choose your working directory
-3. The app will auto-detect existing MKV and SRT files
+2. Select **Directory** or **Single File** mode
+3. Click **Browse…** to choose your folder or file
+4. Optionally click **Filter files…** to include/exclude specific files from the directory
 
 #### 2. Configure Processing Stages
 Toggle and configure the stages you need:
 
 **📥 Extract Stage**
-- Select subtitle language (English, Spanish, French, etc.)
-- Choose output directory
-- Configure subtitle format preferences
+- Select subtitle language (English, Bulgarian, German, Spanish, etc.)
+- Choose output directory (optional — defaults to same folder as the video)
+- Output files are named `{video}.{lang}.srt` (e.g. `movie.en.srt`)
 
-**🌐 Translate Stage**  
-- Select source and target languages
-- Choose translation provider (OpenAI, Claude, LM Studio)
-- Configure model and translation parameters
-- Set API keys in Settings if not using environment variables
+**🎞️ FPS Convert Stage**
+- Specify source FPS manually or auto-detect from paired video
+- Specify target FPS or auto-detect
+- Optionally overwrite the original SRT in-place
+
+**🌐 Translate Stage**
+- Select source language (or "Auto-detect")
+- Select target language — your last choice is remembered across sessions
+- Choose translation provider and model
+- Output files use the target language code (e.g. `movie.bg.srt`)
+- A warning is shown if source and target language are the same
 
 **🔄 Sync Stage**
-- Enable dry-run mode to preview changes
-- Set confidence threshold for matching
-- Configure naming template (`{base}.{lang}.srt`)
+- Enable to intelligently rename SRT files to match video filenames
+- Preview operations before executing
 
 #### 3. Run Processing
-1. Click **"Run"** to start the selected stages
-2. Monitor real-time progress in the progress bar
-3. View detailed logs in the log panel  
-4. Review results in the results panel
+1. Click **Run** to start the selected stages
+2. Monitor real-time progress and logs
+3. Review results in the results panel
 
-#### 4. Accessibility & Zoom Controls
-The application includes browser-style zoom functionality for better accessibility:
+#### 4. Per-file Selection (Filter files…)
+When a directory is selected, click **Filter files…** to open a checklist of all processable files. All files are checked by default. Uncheck any files you want to skip. The button label updates to show the active filter count (e.g. *Filter files… (3/24)*).
 
-**🔍 Zoom Controls**
-- **Zoom In**: `Ctrl/Cmd + Plus` - Increase font size and UI scaling
-- **Zoom Out**: `Ctrl/Cmd + Minus` - Decrease font size and UI scaling  
-- **Reset Zoom**: `Ctrl/Cmd + 0` - Return to default 100% zoom
-- **Zoom Range**: 50% minimum to 200% maximum in 10% increments
-- **View Menu**: Access zoom controls via View → Zoom In/Out/Reset
-- **Status Display**: Current zoom level shown in status bar
-- **Persistent State**: Zoom level saved and restored between sessions
-
-#### 5. Window State Memory
-The application automatically remembers your window preferences:
-
-**📐 Window State Features**
-- **Size Memory**: Window dimensions automatically saved when resized
-- **Position Memory**: Window location automatically saved when moved
-- **Session Restore**: Window size and position restored on next application start
-- **Multi-monitor Support**: Works correctly with multiple monitor setups
-- **Smart Validation**: Ensures restored windows are visible on current screens
-- **Automatic Operation**: No user action required - works seamlessly in background
+#### 5. Accessibility & Zoom Controls
+- **Zoom In**: `Ctrl/Cmd +`
+- **Zoom Out**: `Ctrl/Cmd -`
+- **Reset Zoom**: `Ctrl/Cmd 0`
+- Range: 50%–200% in 10% steps, persisted across sessions
 
 #### 6. Settings Configuration
-Access **File → Settings** (Ctrl+,) for:
+Access **File → Settings** for:
 
-**🔧 Tools Tab**
-- Automatic detection of ffmpeg/mkvextract
-- Manual path overrides if needed
-- Test tool functionality
-
-**🤖 Translators Tab**  
-- API key management with secure storage
-- Model selection per provider
-- Connection testing
-
-**🌍 Languages Tab**
-- Default source/target language preferences
-- Language detection settings
-
-**⚙️ Advanced Tab**
-- Performance settings (concurrency)
-- Logging levels and cleanup options
-- Application behavior preferences
+- **Tools**: ffmpeg path detection and overrides
+- **Translators**: API keys and model defaults per provider
+- **Languages**: Interface language (English, Bulgarian, German, Spanish)
+- **Advanced**: Concurrency, logging, and other preferences
 
 ### Command Line Interface
 
-All three CLI scripts support both traditional output and structured JSONL output for automation:
-
 #### Extract Subtitles
 ```bash
-# Basic extraction
+# Extract from a directory (all supported video formats)
 python3 scripts/extract_mkv_subtitles.py /path/to/videos
 
-# With language selection
+# Specific language
 python3 scripts/extract_mkv_subtitles.py /path/to/videos -l eng
+
+# Specific files only
+python3 scripts/extract_mkv_subtitles.py /path/to/videos \
+  --files "/path/to/video1.mp4,/path/to/video2.mkv"
 
 # JSONL output for automation
 python3 scripts/extract_mkv_subtitles.py /path/to/videos --jsonl
 ```
 
+Output filenames include the language code: `movie.en.srt`, `movie.bg.srt`, etc.
+
 #### Translate Subtitles
 ```bash
-# Translate with OpenAI
-python3 scripts/srtTranslateWhole.py -f input.srt -p openai -m gpt-4o-mini
+# Translate a single file to Bulgarian
+python3 scripts/srtTranslateWhole.py -f input.en.srt -p openai \
+  --source-lang English --target-lang Bulgarian
 
-# Translate directory of files
-python3 scripts/srtTranslateWhole.py -d /path/to/srt/files -p claude
+# Translate a directory
+python3 scripts/srtTranslateWhole.py -d /path/to/srt/files \
+  -p claude --source-lang English --target-lang Bulgarian
 
 # JSONL output for automation
 python3 scripts/srtTranslateWhole.py -f input.srt -p openai --jsonl
 ```
+
+Output filename uses the target language code: `input.bg.srt`.
 
 #### Synchronize Names
 ```bash
@@ -248,45 +191,8 @@ python3 scripts/srt_names_sync.py /path/to/files --provider openai
 # Execute rename operations
 python3 scripts/srt_names_sync.py /path/to/files --provider openai --execute
 
-# JSONL output for automation  
+# JSONL output for automation
 python3 scripts/srt_names_sync.py /path/to/files --provider openai --jsonl
-```
-
-## 🧪 Testing
-
-### Run Test Suite
-```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Run comprehensive tests
-python3 run_comprehensive_tests.py
-
-# Quick validation tests only
-python3 run_comprehensive_tests.py --quick
-
-# Run specific test categories
-python3 run_comprehensive_tests.py --unit-only
-python3 run_comprehensive_tests.py --integration-only
-```
-
-### Test Categories
-- **Unit Tests**: Individual component testing (90%+ coverage)
-- **Integration Tests**: Full workflow validation
-- **Error Scenarios**: Failure condition handling
-- **Cross-Platform**: Platform-specific functionality
-- **Performance**: Benchmarking and optimization
-
-### Manual Testing
-```bash
-# Test CLI scripts
-python3 tests/manual_test_cli.py
-
-# Test JSONL output
-python3 tests/validate_jsonl_output.py
-
-# Test dependency detection
-python3 tests/test_dependency_detection.py
 ```
 
 ## 🔧 Development
@@ -294,156 +200,63 @@ python3 tests/test_dependency_detection.py
 ### Project Structure
 ```
 SubtitleToolkit/
-├── scripts/                    # Enhanced CLI scripts
-│   ├── extract_mkv_subtitles.py
-│   ├── srtTranslateWhole.py
-│   └── srt_names_sync.py
+├── scripts/                    # CLI scripts
+│   ├── extract_mkv_subtitles.py   # Subtitle extraction (MKV/MP4/AVI/MOV/…)
+│   ├── srtTranslateWhole.py        # AI translation
+│   └── srt_names_sync.py           # Filename synchronization
 ├── app/                        # PySide6 desktop application
 │   ├── main.py                 # Application entry point
 │   ├── main_window.py          # Main window
 │   ├── widgets/                # UI components
 │   ├── dialogs/                # Settings and dialogs
+│   │   └── file_filter_dialog.py   # Per-file selection dialog
 │   ├── runner/                 # Subprocess orchestration
 │   ├── config/                 # Configuration management
+│   ├── i18n/                   # Translations (bg, de, es)
 │   └── utils/                  # Utilities and helpers
-├── tests/                      # Comprehensive test suite
-│   ├── unit/                   # Unit tests
-│   ├── integration/            # Integration tests
-│   ├── error_scenarios/        # Error handling tests
-│   └── platform/               # Cross-platform tests
-├── build/                      # Build and packaging
-│   ├── scripts/                # Build automation
-│   ├── installers/             # Platform installers
-│   └── *.spec                  # PyInstaller configurations
-├── requirements.txt            # Python dependencies
-├── launch_app.py              # Application launcher
-└── README.md                  # This file
+├── requirements.txt
+├── launch_app.py
+└── README.md
 ```
 
-### Adding Features
-1. **UI Components**: Add to `app/widgets/` with proper signal/slot connections
-2. **CLI Enhancements**: Modify scripts while maintaining JSONL compatibility  
-3. **New Workflows**: Extend `app/runner/` for additional processing stages
-4. **Tests**: Add corresponding tests for all new functionality
+### Adding a New Translation Provider
+1. Add a client getter function following the pattern in `srtTranslateWhole.py`
+2. Add the provider name to the `engine_combo` in `stage_configurators.py`
+3. Add a default model to `_provider_defaults` in the script's `__main__` block
 
-### Code Style
-- **Type Hints**: Use type annotations throughout
-- **Documentation**: Comprehensive docstrings for all functions
-- **Error Handling**: Graceful degradation and user-friendly messages
-- **Qt Best Practices**: Proper signal/slot usage and memory management
-
-## 📦 Building and Distribution
-
-### Development Build
+### Adding UI Translations
 ```bash
-# Build for current platform
-python3 build/scripts/build.py
+source venv/bin/activate
 
-# Clean build
-python3 build/scripts/build.py --clean
+# Extract new strings from Python source
+pyside6-lupdate app/**/*.py app/*.py -ts app/i18n/translations/subtitletoolkit_bg.ts
 
-# Validation only (no actual build)
-python3 build/scripts/build.py --validate-only
+# Edit the .ts file to fill in translations, then compile
+pyside6-lrelease app/i18n/translations/subtitletoolkit_bg.ts
 ```
-
-### Production Release
-```bash
-# Create complete release package
-python3 build/scripts/release.py 1.0.0
-
-# Platform-specific builds
-bash build/scripts/build-macos.sh     # macOS
-build/scripts/build-windows.bat       # Windows  
-bash build/scripts/build-linux.sh     # Linux
-```
-
-### Distribution Packages
-- **Windows**: `.exe` executable, ZIP archive, optional installer
-- **macOS**: `.app` bundle, professional DMG, compressed archive
-- **Linux**: Directory package, AppImage, desktop integration
 
 ## ❓ Troubleshooting
 
-### Common Issues
-
-#### "ffmpeg not found"
+### "ffmpeg not found"
 ```bash
-# Check if ffmpeg is installed
-ffmpeg -version
-
-# Install via package manager (see Prerequisites)
-# Or set custom path in Settings → Tools tab
+ffmpeg -version   # verify installation
+# Or set a custom path in Settings → Tools
 ```
 
-#### "API key not set"  
+### "API key not set"
 ```bash
-# Set environment variables
 export OPENAI_API_KEY=your_key_here
-export ANTHROPIC_API_KEY=your_key_here
-
-# Or configure in Settings → Translators tab
+# Or configure in Settings → Translators
 ```
 
-#### "Import errors"
-If you encounter import errors, ensure your environment is set up correctly:
+### "Output directory is not writable"
+The app will automatically open a folder picker — choose a writable location and processing will continue.
 
+### Import errors
 ```bash
-# Ensure virtual environment is activated
 source venv/bin/activate
-
-# Reinstall dependencies if needed
 pip install -r requirements.txt
-
-# Test that everything works
-python3 test_gui_launch.py
-python3 scripts/extract_mkv_subtitles.py --help
 ```
-
-#### "GUI not launching"
-```bash
-# Check Qt installation
-python3 -c "from PySide6.QtWidgets import QApplication; print('Qt OK')"
-
-# Test basic GUI (should work)
-python3 test_basic_gui.py
-
-# Check for display issues on Linux
-export DISPLAY=:0
-```
-
-### Debug Mode
-```bash
-# Enable debug logging
-export SUBTITLE_TOOLKIT_DEBUG=1
-python3 launch_app.py
-
-# Verbose CLI output
-python3 scripts/extract_mkv_subtitles.py /path/to/files --verbose
-```
-
-### Performance Issues
-- **Large Files**: Adjust concurrency in Settings → Advanced
-- **Memory Usage**: Monitor system resources during processing
-- **Network Timeouts**: Configure API timeouts in settings
-
-## 🤝 Contributing
-
-### Development Setup
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Set up development environment: `pip install -r requirements.txt`
-4. Run tests: `python3 run_comprehensive_tests.py`
-5. Make changes with proper tests
-6. Commit: `git commit -m 'Add amazing feature'`
-7. Push: `git push origin feature/amazing-feature`
-8. Create Pull Request
-
-### Code Guidelines
-- Follow PEP 8 style guidelines
-- Add type hints for all functions
-- Include comprehensive docstrings
-- Write tests for new functionality
-- Ensure cross-platform compatibility
 
 ## 📄 License
 
@@ -452,50 +265,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - **PySide6**: Modern Qt framework for Python
-- **OpenAI/Anthropic**: AI translation services
-- **ffmpeg/MKVToolNix**: Video processing tools
-- **Python Community**: Excellent libraries and ecosystem
-
-## 📞 Support
-
-- **Issues**: Report bugs and request features via GitHub Issues
-- **Documentation**: Additional docs in `/docs` directory
-- **Community**: Join discussions in GitHub Discussions
-
-## 🚀 Quick Reference
-
-### Immediately Usable (Production Ready)
-```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Extract subtitles from MKV files  
-python3 scripts/extract_mkv_subtitles.py --jsonl /path/to/videos
-
-# Translate SRT files using AI
-OPENAI_API_KEY=your_key python3 scripts/srtTranslateWhole.py --jsonl -f input.srt -p openai
-
-# Sync subtitle file names
-OPENAI_API_KEY=your_key python3 scripts/srt_names_sync.py --jsonl /path/to/files --provider openai
-
-# Test basic GUI functionality
-python3 test_basic_gui.py
-
-# Demo all functionality
-python3 demo_functionality.py
-
-# Run comprehensive tests
-python3 run_comprehensive_tests.py --quick
-```
-
-### Project Status Summary
-- ✅ **Phase 1-5**: All workflow phases completed successfully
-- ✅ **CLI Scripts**: Production ready with JSONL support
-- ✅ **Desktop GUI**: Fully functional and ready to use
-- ✅ **Backend Systems**: Subprocess orchestration, configuration, dependency detection
-- ✅ **Testing**: Comprehensive test suite with 90%+ coverage
-- ✅ **Packaging**: Build automation for Windows/macOS/Linux
-
----
-
-**🎉 Happy subtitle processing with SubtitleToolkit! 🎉**
+- **OpenAI / Anthropic / and others**: AI translation services
+- **ffmpeg**: Video and subtitle processing
