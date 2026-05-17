@@ -1,0 +1,26 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SubtitleToolkit
+Comment=Desktop GUI for subtitle extraction, translation and synchronization
+GenericName=Subtitle Processing Tool
+Exec=SubtitleToolkit
+Icon=subtitletoolkit
+StartupNotify=true
+NoDisplay=false
+Categories=AudioVideo;Video;AudioVideoEditing;Utility;
+Keywords=subtitle;srt;mkv;translation;sync;extract;
+MimeType=video/x-matroska;video/mp4;video/x-msvideo;text/x-subrip;
+Actions=extract;translate;sync;
+
+[Desktop Action extract]
+Name=Extract Subtitles
+Exec=SubtitleToolkit --mode=extract
+
+[Desktop Action translate]
+Name=Translate Subtitles  
+Exec=SubtitleToolkit --mode=translate
+
+[Desktop Action sync]
+Name=Sync Subtitle Names
+Exec=SubtitleToolkit --mode=sync

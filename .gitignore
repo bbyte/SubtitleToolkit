@@ -9,6 +9,21 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!build/*.spec
+!build/entitlements.plist
+!build/version_info.txt
+!build/README.md
+!build/hooks/
+!build/hooks/**
+!build/config/
+!build/config/**
+!build/linux/
+!build/linux/**
+!build/scripts/
+!build/scripts/**
+!build/installers/
+!build/installers/**
+build/subtitletoolkit-macos/
 develop-eggs/
 dist/
 downloads/
